@@ -92,7 +92,26 @@
       "Bash(gh auth:*)",
       "Bash(git init:*)",
       "Bash(git add:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(gh repo:*)",
+      "Bash(git branch:*)",
+      "Bash(git push:*)",
+      "Bash(railway redeploy:*)",
+      "Bash(railway deployment:*)",
+      "Bash(railway logs:*)",
+      "Bash(mysql -h hayabusa.proxy.rlwy.net -P 33618 -u root -pVUcqrpxNBlUBonfvsSLAeUmliQvUeUVO --ssl-mode=DISABLED railway -e \"SHOW TABLES LIKE ''patient_data''; SELECT COUNT\\(*\\) AS cnt FROM patient_data;\")",
+      "Bash(mysql --help)",
+      "Bash(mysql -h hayabusa.proxy.rlwy.net -P 33618 -u root -pVUcqrpxNBlUBonfvsSLAeUmliQvUeUVO --skip-ssl railway -e \"SHOW TABLES LIKE ''patient_data''; SELECT COUNT\\(*\\) AS cnt FROM patient_data;\")",
+      "Bash(DEP_ID=9f983def-09ed-44bb-976d-5f930fd247b5 railway logs \"$DEP_ID\" --build --service openemr-app --json --lines 200)",
+      "Bash(loaded\" — the only difference is apache2-foreground''s -DFOREGROUND:*)",
+      "Bash(DEP_ID=12a2330d-6f46-4fc8-9c95-e500ca9f992d)",
+      "Bash(DEP_ID=dacf2177-67c0-41c2-9bbe-ecfd903b0882 railway logs \"$DEP_ID\" --build --service openemr-app --json --lines 300)",
+      "Bash(DEP_ID=dacf2177-67c0-41c2-9bbe-ecfd903b0882 railway logs \"$DEP_ID\" --build --service openemr-app --json --lines 400)",
+      "Bash(DEP_ID=615866b6-7cb0-41ba-bd8e-2ba17ad33578)",
+      "Bash(DEP_ID=881fecfc-9d43-48f4-9876-c3743d413e5e)",
+      "Bash(railway domain:*)",
+      "Bash(curl -s -o /dev/null -w \"HTTP status: %{http_code}\\\\n\" -L https://openemr-app-production-ded9.up.railway.app/ --max-time 20 curl -s -L https://openemr-app-production-ded9.up.railway.app/ --max-time 20)",
+      "Bash(curl -s -o /dev/null -w \"HTTP status: %{http_code}\\\\n\" -L \"https://openemr-app-production-ded9.up.railway.app/interface/login/login.php?site=default\" --max-time 20)"
     ]
   }
 }
