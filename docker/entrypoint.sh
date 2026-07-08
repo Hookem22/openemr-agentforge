@@ -57,14 +57,21 @@ if mysql -h "$MYSQLHOST" -P "$MYSQLPORT" -u "$MYSQLUSER" -p"$MYSQLPASSWORD" "$MY
     echo "OpenEMR schema already present, skipping installer."
 else
     echo "Running OpenEMR unattended installer..."
-    OPENEMR_ENABLE_INSTALLER_AUTO=1 php /var/www/html/contrib/util/installScripts/InstallerAuto.php \
-        no_root_db_access=1 \
-        server="$MYSQLHOST" \
-        port="$MYSQLPORT" \
-        login="$MYSQLUSER" \
-        pass="$MYSQLPASSWORD" \
-        dbname="$MYSQLDATABASE" \
-        iuserpass=pass
+    # OpenEMR's RootCliGuard forbids running CLI scripts as root (files would end up
+    # owned by root, unreadable by the web server later), so run as www-data via `su -m`
+    # (preserves the exported env vars the inner command reads).
+    export OPENEMR_ENABLE_INSTALLER_AUTO=1
+    export MYSQLHOST MYSQLPORT MYSQLUSER MYSQLPASSWORD MYSQLDATABASE
+    su -m www-data -s /bin/bash -c '
+        php /var/www/html/contrib/util/installScripts/InstallerAuto.php \
+            no_root_db_access=1 \
+            server="$MYSQLHOST" \
+            port="$MYSQLPORT" \
+            login="$MYSQLUSER" \
+            pass="$MYSQLPASSWORD" \
+            dbname="$MYSQLDATABASE" \
+            iuserpass=pass
+    '
 
     echo "Seeding realistic ED-resident sample patients..."
     mysql -h "$MYSQLHOST" -P "$MYSQLPORT" -u "$MYSQLUSER" -p"$MYSQLPASSWORD" "$MYSQLDATABASE" \
