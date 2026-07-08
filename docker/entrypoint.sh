@@ -44,16 +44,19 @@ global \$sqlconf;
 PHP
 chown www-data:www-data "$SITE_DIR/sqlconf.php"
 
+# Railway's MySQL uses a self-signed cert; the mysql CLI's default cert verification
+# rejects it, so disable SSL for these internal, private-network-only connections.
+MYSQL_CLI=(mysql -h "$MYSQLHOST" -P "$MYSQLPORT" -u "$MYSQLUSER" -p"$MYSQLPASSWORD" --skip-ssl)
+
 echo "Waiting for MySQL at ${MYSQLHOST}:${MYSQLPORT}..."
 for i in $(seq 1 30); do
-    if mysql -h "$MYSQLHOST" -P "$MYSQLPORT" -u "$MYSQLUSER" -p"$MYSQLPASSWORD" -e "SELECT 1" >/dev/null 2>&1; then
+    if "${MYSQL_CLI[@]}" -e "SELECT 1" >/dev/null 2>&1; then
         break
     fi
     sleep 2
 done
 
-if mysql -h "$MYSQLHOST" -P "$MYSQLPORT" -u "$MYSQLUSER" -p"$MYSQLPASSWORD" "$MYSQLDATABASE" \
-    -e "SELECT 1 FROM patient_data LIMIT 1" >/dev/null 2>&1; then
+if "${MYSQL_CLI[@]}" "$MYSQLDATABASE" -e "SELECT 1 FROM patient_data LIMIT 1" >/dev/null 2>&1; then
     echo "OpenEMR schema already present, skipping installer."
 else
     echo "Running OpenEMR unattended installer..."
@@ -74,8 +77,7 @@ else
     '
 
     echo "Seeding realistic ED-resident sample patients..."
-    mysql -h "$MYSQLHOST" -P "$MYSQLPORT" -u "$MYSQLUSER" -p"$MYSQLPASSWORD" "$MYSQLDATABASE" \
-        < /var/www/html/docs/seed-sample-patients.sql
+    "${MYSQL_CLI[@]}" "$MYSQLDATABASE" < /var/www/html/docs/seed-sample-patients.sql
 fi
 
 exec "$@"
