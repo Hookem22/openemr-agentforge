@@ -80,6 +80,26 @@ else
     '
 fi
 
+# Same row-count-vs-query-success lesson as the patient seed check below: a prior
+# crash-loop cycle could have interrupted the installer mid-way, leaving the schema
+# present but the initial admin account missing. Recreate it (matching
+# library/classes/Installer.class.php::add_initial_user()'s defaults) whenever the
+# users table is empty, independent of whether the installer ran this boot.
+USER_COUNT=$("${MYSQL_CLI[@]}" -N "$MYSQLDATABASE" -e "SELECT COUNT(*) FROM users" 2>/dev/null || echo 0)
+if [[ "$USER_COUNT" -eq 0 ]]; then
+    echo "No admin user found, recreating initial admin account..."
+    ADMIN_HASH=$(su -m www-data -s /bin/bash -c "php -r \"echo password_hash('pass', PASSWORD_DEFAULT);\"")
+    "${MYSQL_CLI[@]}" "$MYSQLDATABASE" <<SQL
+INSERT INTO \`groups\` (id, name, user) VALUES (1, 'Default', 'admin');
+INSERT INTO users (id, username, password, authorized, lname, fname, facility_id, calendar, cal_ui)
+    VALUES (1, 'admin', 'NoLongerUsed', 1, 'Administrator', '', 3, 1, 3);
+INSERT INTO users_secure (id, username, password, last_update_password)
+    VALUES (1, 'admin', '${ADMIN_HASH}', NOW());
+SQL
+else
+    echo "Admin user already present ($USER_COUNT rows), skipping."
+fi
+
 PATIENT_COUNT=$("${MYSQL_CLI[@]}" -N "$MYSQLDATABASE" -e "SELECT COUNT(*) FROM patient_data" 2>/dev/null || echo 0)
 if [[ "$PATIENT_COUNT" -eq 0 ]]; then
     echo "Seeding realistic ED-resident sample patients..."
