@@ -1,0 +1,68 @@
+# Knockout
+
+**Knockout** is a JavaScript [MVVM](https://en.wikipedia.org/wiki/Model_View_ViewModel) (a modern variant of MVC) library that makes it easier to create rich, desktop-like user interfaces with JavaScript and HTML. It uses *observers* to make your UI automatically stay in sync with an underlying data model, along with a powerful and extensible set of *declarative bindings* to enable productive development.
+
+## Getting started
+
+[![Join the chat at https://gitter.im/knockout/knockout](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/knockout/knockout?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
+
+**Totally new to Knockout?** The most fun place to start is the [online interactive tutorials](https://learn.knockoutjs.com/).
+
+For more details, see
+
+* Documentation on [the project's website](https://knockoutjs.com/documentation/introduction.html)
+* Online examples at [http://knockoutjs.com/examples/](https://knockoutjs.com/examples/)
+
+## Downloading Knockout
+
+You can [download released versions of Knockout](https://knockoutjs.com/downloads/) from the project's website.
+
+For Node.js developers, Knockout is also available from [npm](https://npmjs.org/) - just run `npm install knockout`.
+
+## Building Knockout from sources
+
+If you prefer to build the library yourself:
+
+1. **Clone the repo from GitHub**
+
+   ```sh
+   git clone https://github.com/knockout/knockout.git
+   cd knockout
+   ```
+
+2. **Acquire build dependencies.**
+
+   Make sure you have [Node.js](https://nodejs.org/) and [Java](https://www.java.com/en/) installed on your workstation. These are only needed to _build_ Knockout from sources. Knockout itself has no dependency on Node.js or Java once it is built (it works with any server technology or none). Now run:
+
+   ```sh
+   npm install
+   ```
+
+3. **Run the build tool**
+
+   ```sh
+   npm run grunt
+   ```
+
+   Now you'll find the built files in `build/output/`.
+
+   To run a single task, use `--`
+
+   ```sh
+   npm run grunt -- build:debug
+   ```
+
+## Running the tests
+
+```sh
+npm test              # All tests (Node.js + headless Chrome)
+npm run test:node     # Node.js non-DOM specs only
+npm run test:browser  # Headless Chrome specs only
+npm run grunt         # Build and test against production output
+```
+
+For interactive debugging, open `spec/runner.html` in your browser.
+
+## License
+
+MIT license - [https://www.opensource.org/licenses/mit-license.php](https://www.opensource.org/licenses/mit-license.php)

@@ -1,0 +1,39 @@
+{
+  "name": "digitickets/lalit",
+  "type": "library",
+  "description": "GitHub copy of LaLit's XML2Array and Array2XML",
+  "keywords": [
+    "xml",
+    "array"
+  ],
+  "homepage": "https://github.com/digitickets/lalit/blob/master/README.md",
+  "license": "CC0-1.0",
+  "authors": [
+    {
+      "name": "Lalit Patel",
+      "role": "Lead Developer"
+    },
+    {
+      "name": "Richard Quadling",
+      "role": "Developer"
+    }
+  ],
+  "autoload": {
+    "psr-4": {
+      "LaLit\\": "src/"
+    }
+  },
+  "autoload-dev": {
+    "psr-4": {
+      "LaLitTests\\": "tests/"
+    }
+  },
+  "require": {
+    "php": ">=7",
+    "ext-dom": "*"
+  },
+  "require-dev": {
+    "phpunit/phpunit": "*",
+    "yetanotherape/diff-match-patch": "*"
+  }
+}

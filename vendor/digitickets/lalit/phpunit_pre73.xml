@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<phpunit
+        bootstrap="vendor/autoload.php"
+        colors="true"
+        columns="max"
+        stopOnFailure="false"
+>
+    <filter>
+        <whitelist>
+            <directory suffix=".php">src/</directory>
+        </whitelist>
+    </filter>
+    <php>
+        <ini name="memory_limit" value="-1"/>
+    </php>
+    <testsuite name="TypedArray">
+        <directory>./tests</directory>
+    </testsuite>
+</phpunit>

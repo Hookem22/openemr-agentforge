@@ -1,0 +1,45 @@
+graph TB
+    Clinician["Clinician<br/>(browser, logged into OpenEMR)"]
+
+    subgraph existing["EXISTING OpenEMR (unchanged)"]
+        Login["Login / Session<br/>(SessionWrapper)"]
+        OAuth["OAuth2 + SMART on FHIR<br/>AuthorizationController"]
+        AuthListener["AuthorizationListener +<br/>BearerTokenAuthorizationStrategy<br/>(scope + token enforcement)"]
+        FHIR["FHIR R4 API<br/>Patient / Encounter / Condition /<br/>MedicationRequest / AllergyIntolerance /<br/>Observation / DocumentReference"]
+        GACL["GACL / AclMain<br/>(role-based UI permissions)"]
+        AuditLogger["EventAuditLogger<br/>(audit_master / audit_details)"]
+        DB[("MySQL/MariaDB<br/>patient_data, encounters, forms, ...")]
+    end
+
+    subgraph new["NEW: Clinical Co-Pilot additions"]
+        ChatUI["Co-Pilot Chat Panel<br/>(embedded in patient chart UI)"]
+        Agent["Co-Pilot Agent Service<br/>(Python / LangGraph)"]
+        Tools["Tool Layer<br/>get_patient, get_conditions,<br/>get_medications, get_allergies,<br/>get_vitals, get_labs, get_notes,<br/>diff_encounters"]
+        Allowlist["PHI Allow-list Filter<br/>(strips SSN / unneeded fields<br/>before LLM sees them)"]
+        Verifier["Deterministic Verifier<br/>(citation-existence check,<br/>fail-closed)"]
+        LLM["Anthropic API<br/>(under signed BAA)"]
+        Obs["Observability Stack<br/>Langfuse (traces/cost) +<br/>Grafana (alerts)"]
+    end
+
+    Clinician -->|SMART launch| Login
+    Login --> OAuth
+    OAuth -->|clinician's own token,<br/>patient-scoped| ChatUI
+    Clinician <--> ChatUI
+    ChatUI --> Agent
+    Agent --> Tools
+    Tools -->|bearer token = clinician's token| AuthListener
+    AuthListener --> GACL
+    AuthListener --> FHIR
+    FHIR --> DB
+    FHIR -.->|every call logged,<br/>attributed to real user| AuditLogger
+    Tools --> Allowlist
+    Allowlist --> Agent
+    Agent <--> LLM
+    Agent --> Verifier
+    Verifier -->|verified response only| ChatUI
+    Agent -.->|spans, latency,<br/>tool failures, token cost| Obs
+
+    classDef existingStyle fill:#e8e8e8,stroke:#555,color:#000
+    classDef newStyle fill:#cfe8ff,stroke:#1a5fa0,color:#000
+    class Login,OAuth,AuthListener,FHIR,GACL,AuditLogger,DB existingStyle
+    class ChatUI,Agent,Tools,Allowlist,Verifier,LLM,Obs newStyle

@@ -1,0 +1,66 @@
+{
+    "name": "firehed/container",
+    "type": "library",
+    "license": "MIT",
+    "description": "Dependency inversion container with advanced autowiring and compilation support. PSR-11 compliant.",
+    "keywords": [
+        "psr-11",
+        "psr11",
+        "container",
+        "container-interface",
+        "container-interop",
+        "autowire",
+        "di",
+        "ioc"
+    ],
+    "provide": {
+        "psr/container-implementation": "^1.0"
+    },
+    "authors": [
+        {
+            "name": "Eric Stern",
+            "email": "eric@ericstern.com"
+        }
+    ],
+    "autoload": {
+      "files": [
+        "src/functions.php"
+      ],
+      "psr-4": {
+        "Firehed\\Container\\": "src"
+      }
+    },
+    "autoload-dev": {
+      "psr-4": {
+        "Firehed\\Container\\": "tests"
+      }
+    },
+    "config": {
+        "sort-packages": true
+    },
+    "require": {
+        "php": "^8.2",
+        "nikic/php-parser": "^5.0",
+        "psr/container": "^1.0 || ^2.0",
+        "psr/log": "^1.1 || ^2.0 || ^3.0"
+    },
+    "require-dev": {
+        "phpstan/phpstan": "^2.0",
+        "phpstan/phpstan-phpunit": "^2.0",
+        "phpstan/phpstan-strict-rules": "^2.0",
+        "phpunit/phpunit": "^11.0 || ^12.0 || ^13.0",
+        "squizlabs/php_codesniffer": "^4.0",
+        "vlucas/phpdotenv": "^5.6"
+    },
+    "scripts": {
+        "test": [
+            "@phpunit",
+            "@phpstan",
+            "@phpcs"
+        ],
+        "autofix": "phpcbf",
+        "phpunit": "phpunit",
+        "phpstan": "phpstan analyse",
+        "phpcs": "phpcs"
+    }
+}

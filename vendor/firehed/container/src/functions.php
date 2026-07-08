@@ -1,0 +1,27 @@
+<?php
+
+namespace Firehed\Container;
+
+use Closure;
+
+/** @param ?class-string $class */
+function autowire(?string $class = null): ShorthandDefinitionInterface
+{
+    return new AutowiredClass($class);
+}
+
+function env(string $name, ?string $default = null): EnvironmentVariableInterface
+{
+    // This is a little magic to separate a null literal from no argument
+    // provided
+    if (func_num_args() === 2) {
+        return new EnvironmentVariable($name, $default);
+    } else {
+        return new EnvironmentVariable($name);
+    }
+}
+
+function factory(?Closure $def = null): ShorthandDefinitionInterface
+{
+    return new Factory($def);
+}
