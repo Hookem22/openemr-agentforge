@@ -26,6 +26,22 @@ This is a fork of OpenEMR used to build the "Clinical Co-Pilot" agent project (G
 [`USER.md`](USER.md) for the target user and use cases, [`AUDIT.md`](AUDIT.md) for the security/compliance
 audit, and [`ARCHITECTURE.md`](ARCHITECTURE.md) for the agent integration plan.
 
+**Deployed URL:** https://openemr-app-production-ded9.up.railway.app/ (login: `admin` / `pass`)
+
+### Railway deployment (Stage 2)
+
+The deployed instance runs from the root [`Dockerfile`](Dockerfile) + [`docker/entrypoint.sh`](docker/entrypoint.sh)
+on Railway, git-connected so every push to `main` auto-builds and redeploys. Notes:
+
+- The service is linked to a Railway MySQL plugin via variable references (`MYSQLHOST`, `MYSQLPORT`, `MYSQLUSER`,
+  `MYSQLPASSWORD`, `MYSQLDATABASE`), and a `PORT=80` variable so Railway's proxy routes to Apache's default port.
+- `docker/entrypoint.sh` regenerates `sites/default/sqlconf.php` from those env vars on every boot, waits for
+  MySQL, and — only if needed — runs OpenEMR's unattended installer and seeds the sample ED-resident patients
+  from `docs/seed-sample-patients.sql` (idempotent: checked by row count, not just schema presence).
+- `vendor/` and built front-end assets are committed as-is (composer/npm already run on the host) rather than
+  rebuilt inside the image, to keep the Docker build fast for this exploratory MVP deploy.
+- Railway's MySQL uses a self-signed TLS cert, so the entrypoint's `mysql` CLI calls use `--skip-ssl`.
+
 ### Local development setup (macOS, native Homebrew LAMP)
 
 No Docker is used for local dev in this fork; everything runs natively via Homebrew.
