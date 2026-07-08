@@ -80,9 +80,13 @@ else
     "${MYSQL_CLI[@]}" "$MYSQLDATABASE" < /var/www/html/docs/seed-sample-patients.sql
 fi
 
-# Temporary diagnostics for the "More than one MPM loaded" crash: dump the
-# actual runtime env/module state right before handing off to apache2-foreground.
-echo "DEBUG: APACHE_* env vars:"; env | grep -i apache || true
-echo "DEBUG: apache2ctl -M output:"; apache2ctl -M 2>&1 || true
+# Belt-and-suspenders: the baked-in mods-enabled state from the image build has
+# been observed to not always match what's present in the actual running
+# container on Railway (build-time `apache2ctl -M` shows only mpm_prefork, but
+# the deployed container sometimes still has mpm_event/mpm_worker enabled too,
+# which Apache refuses to start with). Re-normalize at every boot so startup
+# doesn't depend on that being preserved correctly from build to runtime.
+a2dismod mpm_event mpm_worker >/dev/null 2>&1 || true
+a2enmod mpm_prefork >/dev/null 2>&1 || true
 
 exec "$@"
