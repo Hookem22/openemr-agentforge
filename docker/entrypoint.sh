@@ -80,4 +80,9 @@ else
     "${MYSQL_CLI[@]}" "$MYSQLDATABASE" < /var/www/html/docs/seed-sample-patients.sql
 fi
 
+# Temporary diagnostics for the "More than one MPM loaded" crash: dump the
+# actual runtime env/module state right before handing off to apache2-foreground.
+echo "DEBUG: APACHE_* env vars:"; env | grep -i apache || true
+echo "DEBUG: apache2ctl -M output:"; apache2ctl -M 2>&1 || true
+
 exec "$@"
