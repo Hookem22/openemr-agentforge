@@ -35,6 +35,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     sockets \
     exif \
     opcache \
+    && (a2dismod mpm_event mpm_worker || true) \
+    && a2enmod mpm_prefork \
     && a2enmod rewrite
 
 # Apache: OpenEMR relies on per-directory .htaccess files, and index.php must take
