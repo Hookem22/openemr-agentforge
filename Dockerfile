@@ -55,5 +55,9 @@ COPY --chown=www-data:www-data . .
 
 RUN chmod +x docker/entrypoint.sh
 
+# Build-time sanity check: fail fast here (with a clear log) if Apache's module
+# config is broken, rather than finding out via a runtime crash loop.
+RUN apache2ctl -M
+
 ENTRYPOINT ["docker/entrypoint.sh"]
 CMD ["apache2-foreground"]
