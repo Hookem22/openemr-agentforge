@@ -3,10 +3,11 @@
 #
 # Regenerates sites/default/sqlconf.php from the Railway-provided MySQL service
 # variables on every boot, waits for the database to accept connections, and — only
-# if the schema hasn't been installed yet (detected by querying for patient_data,
-# since the container filesystem is rebuilt on every deploy but the external Railway
-# MySQL database persists) — runs OpenEMR's unattended installer and seeds the
-# realistic ED-resident sample patients used for USER.md's use cases.
+# if the schema+admin-user setup isn't complete (the container filesystem is rebuilt
+# on every deploy but the external Railway MySQL database persists, so a prior
+# interrupted install can leave stale, partial state) — resets the database and
+# runs OpenEMR's unattended installer, then seeds the realistic ED-resident sample
+# patients used for USER.md's use cases.
 set -euo pipefail
 
 : "${MYSQLHOST:?MYSQLHOST is required (set via Railway variable reference to the MySQL service)}"
@@ -56,13 +57,31 @@ for i in $(seq 1 30); do
     sleep 2
 done
 
-# Note: a successful `SELECT ... LIMIT 1` here just means the table exists (query
-# ran without error), not that it has any rows — checked separately below so an
-# existing-but-empty schema (e.g. installer ran but seeding didn't) still gets seeded.
-if "${MYSQL_CLI[@]}" "$MYSQLDATABASE" -e "SELECT 1 FROM patient_data LIMIT 1" >/dev/null 2>&1; then
-    echo "OpenEMR schema already present, skipping installer."
+# Note: a successful `SELECT ... LIMIT 1`/`SELECT COUNT(*)` here just means the
+# table exists and the query ran without error — not that meaningful data is in
+# it. A prior crash-loop cycle could have interrupted the installer mid-way,
+# leaving patient_data present but the users table (and, critically, the
+# associated phpGACL access-control rows the installer's install_gacl() step
+# creates) empty. A partial install like that can't be patched by hand-inserting
+# a few rows into users/users_secure — phpGACL's schema (gacl_aro, gacl_aro_groups,
+# gacl_acl, etc.) needs many consistent rows built via GaclApi, so treat "schema
+# present but no users" as "installation incomplete" and let the full installer
+# redo everything from a clean database rather than limping along with an
+# inconsistent partial state.
+NEEDS_INSTALL=0
+if ! "${MYSQL_CLI[@]}" "$MYSQLDATABASE" -e "SELECT 1 FROM patient_data LIMIT 1" >/dev/null 2>&1; then
+    NEEDS_INSTALL=1
+fi
+USER_COUNT=$("${MYSQL_CLI[@]}" -N "$MYSQLDATABASE" -e "SELECT COUNT(*) FROM users" 2>/dev/null || echo 0)
+if [[ "$USER_COUNT" -eq 0 ]]; then
+    NEEDS_INSTALL=1
+fi
+
+if [[ "$NEEDS_INSTALL" -eq 0 ]]; then
+    echo "OpenEMR schema and admin user already present, skipping installer."
 else
-    echo "Running OpenEMR unattended installer..."
+    echo "Schema missing or incomplete (no users found) -- resetting database and running installer..."
+    "${MYSQL_CLI[@]}" -e "DROP DATABASE IF EXISTS \`$MYSQLDATABASE\`; CREATE DATABASE \`$MYSQLDATABASE\`;"
     # OpenEMR's RootCliGuard forbids running CLI scripts as root (files would end up
     # owned by root, unreadable by the web server later), so run as www-data via `su -m`
     # (preserves the exported env vars the inner command reads).
@@ -78,26 +97,6 @@ else
             dbname="$MYSQLDATABASE" \
             iuserpass=pass
     '
-fi
-
-# Same row-count-vs-query-success lesson as the patient seed check below: a prior
-# crash-loop cycle could have interrupted the installer mid-way, leaving the schema
-# present but the initial admin account missing. Recreate it (matching
-# library/classes/Installer.class.php::add_initial_user()'s defaults) whenever the
-# users table is empty, independent of whether the installer ran this boot.
-USER_COUNT=$("${MYSQL_CLI[@]}" -N "$MYSQLDATABASE" -e "SELECT COUNT(*) FROM users" 2>/dev/null || echo 0)
-if [[ "$USER_COUNT" -eq 0 ]]; then
-    echo "No admin user found, recreating initial admin account..."
-    ADMIN_HASH=$(su -m www-data -s /bin/bash -c "php -r \"echo password_hash('pass', PASSWORD_DEFAULT);\"")
-    "${MYSQL_CLI[@]}" "$MYSQLDATABASE" <<SQL
-INSERT INTO \`groups\` (id, name, user) VALUES (1, 'Default', 'admin');
-INSERT INTO users (id, username, password, authorized, lname, fname, facility_id, calendar, cal_ui)
-    VALUES (1, 'admin', 'NoLongerUsed', 1, 'Administrator', '', 3, 1, 3);
-INSERT INTO users_secure (id, username, password, last_update_password)
-    VALUES (1, 'admin', '${ADMIN_HASH}', NOW());
-SQL
-else
-    echo "Admin user already present ($USER_COUNT rows), skipping."
 fi
 
 PATIENT_COUNT=$("${MYSQL_CLI[@]}" -N "$MYSQLDATABASE" -e "SELECT COUNT(*) FROM patient_data" 2>/dev/null || echo 0)
