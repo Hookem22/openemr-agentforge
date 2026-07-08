@@ -56,6 +56,9 @@ for i in $(seq 1 30); do
     sleep 2
 done
 
+# Note: a successful `SELECT ... LIMIT 1` here just means the table exists (query
+# ran without error), not that it has any rows — checked separately below so an
+# existing-but-empty schema (e.g. installer ran but seeding didn't) still gets seeded.
 if "${MYSQL_CLI[@]}" "$MYSQLDATABASE" -e "SELECT 1 FROM patient_data LIMIT 1" >/dev/null 2>&1; then
     echo "OpenEMR schema already present, skipping installer."
 else
@@ -75,9 +78,14 @@ else
             dbname="$MYSQLDATABASE" \
             iuserpass=pass
     '
+fi
 
+PATIENT_COUNT=$("${MYSQL_CLI[@]}" -N "$MYSQLDATABASE" -e "SELECT COUNT(*) FROM patient_data" 2>/dev/null || echo 0)
+if [[ "$PATIENT_COUNT" -eq 0 ]]; then
     echo "Seeding realistic ED-resident sample patients..."
     "${MYSQL_CLI[@]}" "$MYSQLDATABASE" < /var/www/html/docs/seed-sample-patients.sql
+else
+    echo "Sample patients already present ($PATIENT_COUNT rows), skipping seed."
 fi
 
 # Belt-and-suspenders: the baked-in mods-enabled state from the image build has
