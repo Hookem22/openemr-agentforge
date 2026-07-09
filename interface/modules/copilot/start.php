@@ -23,6 +23,20 @@
  * them with no session dependency at all for this part of the flow.
  */
 
+// Force the site explicitly rather than relying on $session->get('site_id') -- this popup's session
+// has been observed to have an empty site_id at this exact point (background polling from the opener
+// tab -- dated_reminders_counter.php, background_service/$run -- races this popup's own session read),
+// which makes globals.php throw MissingSiteIdException (a Symfony BadRequestHttpException). OpenEMR's
+// ErrorHandler renders any uncaught HttpExceptionInterface as a malformed, bodyless response that
+// Chrome refuses to parse (chrome-error://chromewebdata, matching net::ERR_HTTP_RESPONSE_CODE_FAILURE
+// seen on callback.php before its equivalent fix) -- the popup then just sits on that broken page
+// forever, and the opener's postMessage listener waits forever too. Confirmed directly: a bare GET to
+// this script returned an empty-body 400 in the access log, reproducing the exact "popup never loads"
+// symptom. Single-site deployment, so 'default' is always correct. Safe to force unconditionally here
+// (unlike proxy.php) because this script only ever runs as the first hop of the one-shot auth popup,
+// never on an already-authenticated main-tab request.
+$_GET['site'] = 'default';
+
 require_once("../../globals.php");
 
 require_once(__DIR__ . '/config.php');
