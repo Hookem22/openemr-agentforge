@@ -6,7 +6,10 @@ documents for full detail on any given area.
 ## Deployed links
 
 - **OpenEMR fork (public app)**: https://openemr-app-production-ded9.up.railway.app/ (login: `admin`/`pass`)
-- **Agent service**: not yet deployed (in progress — see Status below)
+- **Agent service**: https://copilot-agent-production-8af2.up.railway.app/ (`/health` returns `{"status":"ok"}`;
+  same Railway project as the OpenEMR app, new git-connected service built from `agent/Dockerfile`. The chat
+  widget embedded in the deployed OpenEMR app is not yet wired to it — `interface/modules/copilot/config.php`
+  is a gitignored, locally-only file with dev-only OAuth2 client/URLs; production wiring is the next step.)
 - **GitHub repo**: https://github.com/Hookem22/openemr-agentforge (Railway-git-connected; every push to
   `main` auto-triggers a build+deploy)
 
@@ -68,7 +71,10 @@ notes kept alongside the code:
 
 ## Status / what's left
 
-- **Agent service Railway deployment**: not yet done — next step.
+- **Agent service Railway deployment**: done (see Deployed links above). Production auth-bridge wiring
+  (`interface/modules/copilot/config.php` on the deployed OpenEMR app, pointed at the deployed agent and a
+  production-registered OAuth2 client) is the immediate next step — the widget currently only works against a
+  local OpenEMR + local agent.
 - **Load/stress testing (10 & 50 concurrent users)**: not yet done.
 - **Dashboard + 3 alerts (p95 latency, error rate, tool failure rate)**: not yet done.
 - **AI cost analysis**: not yet done.
