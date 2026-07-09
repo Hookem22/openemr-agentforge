@@ -107,6 +107,18 @@ else
     echo "Sample patients already present ($PATIENT_COUNT rows), skipping seed."
 fi
 
+# Additional sample patients (Robert Chen, Dorothy Simmons) covering use cases the base seed
+# doesn't exercise (clinical-constraint flagging, unrelated-history filtering, verified-absent
+# allergy data). Checked independently by name so it seeds exactly once regardless of what state
+# the base seed check above found the DB in.
+CHEN_COUNT=$("${MYSQL_CLI[@]}" -N "$MYSQLDATABASE" -e "SELECT COUNT(*) FROM patient_data WHERE fname='Robert' AND lname='Chen'" 2>/dev/null || echo 0)
+if [[ "$CHEN_COUNT" -eq 0 ]]; then
+    echo "Seeding additional sample patients (Robert Chen, Dorothy Simmons)..."
+    "${MYSQL_CLI[@]}" "$MYSQLDATABASE" < /var/www/html/docs/seed-additional-patients.sql
+else
+    echo "Additional sample patients already present, skipping seed."
+fi
+
 # Belt-and-suspenders: the baked-in mods-enabled state from the image build has
 # been observed to not always match what's present in the actual running
 # container on Railway (build-time `apache2ctl -M` shows only mpm_prefork, but
