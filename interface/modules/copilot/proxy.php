@@ -17,6 +17,11 @@
 // would be silently discarded, forcing a spurious reauth on every request past token expiry.
 $sessionAllowWrite = true;
 
+// Force the site explicitly -- see start.php's matching comment (same session-reliability class of
+// issue: a missing site_id makes globals.php throw MissingSiteIdException, which OpenEMR's
+// ErrorHandler renders as an empty-body 400). Single-site deployment, so 'default' is always correct.
+$_GET['site'] = 'default';
+
 require_once("../../globals.php");
 
 use GuzzleHttp\Client;

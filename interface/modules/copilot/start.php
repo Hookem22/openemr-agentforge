@@ -23,6 +23,15 @@
  * them with no session dependency at all for this part of the flow.
  */
 
+// Force the site explicitly rather than relying on $session->get('site_id') -- the OAuth2
+// authorize/login/scope-confirm round-trip this script kicks off has been observed to leave the
+// session without a site_id by the time the flow lands back on callback.php (same session-reliability
+// class of issue as the state-param docstring above), which makes globals.php throw
+// MissingSiteIdException (a Symfony BadRequestHttpException). OpenEMR's ErrorHandler renders any
+// uncaught HttpExceptionInterface with an EMPTY body, so that surfaces to the browser as a bare,
+// unhelpful 400 with no message. This is a single-site deployment, so 'default' is always correct.
+$_GET['site'] = 'default';
+
 require_once("../../globals.php");
 
 require_once(__DIR__ . '/config.php');

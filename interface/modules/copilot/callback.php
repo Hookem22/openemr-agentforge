@@ -17,6 +17,12 @@
 // defaults to read-only/read_and_close session mode and that write would be silently discarded.
 $sessionAllowWrite = true;
 
+// Force the site explicitly -- see start.php's matching comment. The OAuth2 redirect chain back to
+// this script has been observed to leave the session without a site_id, which makes globals.php throw
+// MissingSiteIdException and OpenEMR's ErrorHandler renders that as an empty-body 400 (the bug this
+// works around). Single-site deployment, so 'default' is always correct.
+$_GET['site'] = 'default';
+
 require_once("../../globals.php");
 
 use GuzzleHttp\Client;
