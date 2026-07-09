@@ -119,6 +119,51 @@ else
     echo "Additional sample patients already present, skipping seed."
 fi
 
+# Clinical Co-Pilot needs the REST/FHIR API and a correct OAuth2 site address enabled -- idempotent,
+# re-asserted every boot in case a full reinstall (see NEEDS_INSTALL above) reset globals to defaults.
+"${MYSQL_CLI[@]}" "$MYSQLDATABASE" -e "
+    UPDATE globals SET gl_value='1' WHERE gl_name IN ('rest_api','rest_fhir_api');
+    UPDATE globals SET gl_value='${SITE_ADDR_OAUTH:-}' WHERE gl_name='site_addr_oath' AND '${SITE_ADDR_OAUTH:-}' != '';
+" >/dev/null 2>&1 || true
+
+# Clinical Co-Pilot auth-bridge config: interface/modules/copilot/config.php is gitignored (real
+# OAuth2 client secret) and never in the repo, so regenerate it every boot from Railway env vars --
+# same pattern as sqlconf.php above. Requires a confidential OAuth2 client already registered
+# against this deployed instance (COPILOT_CLIENT_ID/SECRET below) with a redirect_uri matching
+# COPILOT_REDIRECT_URI exactly (see memory/railway-deployment.md for the one-time registration
+# steps -- registration itself isn't repeated here since it isn't idempotent, it would create a new
+# client on every boot).
+if [[ -n "${COPILOT_CLIENT_ID:-}" ]]; then
+    COPILOT_DIR=/var/www/html/interface/modules/copilot
+    cat > "$COPILOT_DIR/config.php" <<PHP
+<?php
+
+/**
+ * Clinical Co-Pilot auth-bridge config -- generated at container start from Railway env vars
+ * (docker/entrypoint.sh). Do not commit; this file is gitignored.
+ */
+
+const COPILOT_CLIENT_ID = '${COPILOT_CLIENT_ID}';
+const COPILOT_CLIENT_SECRET = '${COPILOT_CLIENT_SECRET}';
+
+const COPILOT_OAUTH_BASE = '${COPILOT_OAUTH_BASE}';
+const COPILOT_REDIRECT_URI = '${COPILOT_REDIRECT_URI}';
+const COPILOT_AGENT_BASE_URL = '${COPILOT_AGENT_BASE_URL}';
+
+const COPILOT_SCOPE = 'openid offline_access api:oemr api:fhir user/Patient.read user/Encounter.read '
+    . 'user/Condition.read user/MedicationRequest.read user/AllergyIntolerance.read user/Observation.read '
+    . 'user/DocumentReference.read';
+PHP
+    chown www-data:www-data "$COPILOT_DIR/config.php"
+    # Idempotent: harmless no-op if this client doesn't exist (e.g. a full reinstall wiped
+    # oauth_clients) -- registration would need to be redone manually in that case, this just
+    # re-asserts the enabled flag for the common case where the DB persisted across this boot.
+    "${MYSQL_CLI[@]}" "$MYSQLDATABASE" -e "UPDATE oauth_clients SET is_enabled=1 WHERE client_id='${COPILOT_CLIENT_ID}';" >/dev/null 2>&1 || true
+    echo "Clinical Co-Pilot auth-bridge config.php generated."
+else
+    echo "COPILOT_CLIENT_ID not set -- skipping Clinical Co-Pilot config.php generation (widget will not work)."
+fi
+
 # Belt-and-suspenders: the baked-in mods-enabled state from the image build has
 # been observed to not always match what's present in the actual running
 # container on Railway (build-time `apache2ctl -M` shows only mpm_prefork, but
