@@ -111,7 +111,20 @@
       "Bash(DEP_ID=881fecfc-9d43-48f4-9876-c3743d413e5e)",
       "Bash(railway domain:*)",
       "Bash(curl -s -o /dev/null -w \"HTTP status: %{http_code}\\\\n\" -L https://openemr-app-production-ded9.up.railway.app/ --max-time 20 curl -s -L https://openemr-app-production-ded9.up.railway.app/ --max-time 20)",
-      "Bash(curl -s -o /dev/null -w \"HTTP status: %{http_code}\\\\n\" -L \"https://openemr-app-production-ded9.up.railway.app/interface/login/login.php?site=default\" --max-time 20)"
+      "Bash(curl -s -o /dev/null -w \"HTTP status: %{http_code}\\\\n\" -L \"https://openemr-app-production-ded9.up.railway.app/interface/login/login.php?site=default\" --max-time 20)",
+      "Bash(curl -s -b /tmp/cookies.txt -c /tmp/cookies.txt -L \"https://openemr-app-production-ded9.up.railway.app/interface/main/main_screen.php?auth=login&site=default\" --data-urlencode \"new_login_session_management=1\" --data-urlencode \"languageChoice=1\" --data-urlencode \"authProvider=Default\" --data-urlencode \"authUser=admin\" --data-urlencode \"clearPass=pass\" -o /tmp/login_result2.html -w \"POST login: %{http_code} -> final URL: %{url_effective}\\\\n\" grep -io \"<title>[^<]*</title>\\\\|invalid username or password\\\\|logout\\\\|Patient Portal\\\\|Calendar\\\\|Messages\" /tmp/login_result2.html)",
+      "Bash(ssh -T git@labs.gauntletai.com -p 22022)",
+      "Bash(curl -s -b /tmp/cookies.txt -c /tmp/cookies.txt -D - \"https://openemr-app-production-ded9.up.railway.app/interface/main/main_screen.php?auth=login&site=default\" --data-urlencode \"new_login_session_management=1\" --data-urlencode \"languageChoice=1\" --data-urlencode \"authUser=admin\" --data-urlencode \"clearPass=pass\" -o /tmp/login_result4.html)",
+      "Bash(curl -s -b /tmp/cookies.txt \"https://openemr-app-production-ded9.up.railway.app/interface/main/tabs/main.php?token_main=TuS5irwySOyIbUgGIax7tsA99NbVa6lELAoS1f5n\" -w \"\\\\nStatus: %{http_code}\\\\n\")",
+      "Bash(git remote:*)",
+      "Bash(git fetch:*)",
+      "Bash(git ls-tree:*)",
+      "Bash(git merge:*)",
+      "Bash(cd /Users/willparks/Documents/Gauntlet/openemr-base-clean-main git rm --cached openemr-parks 2)",
+      "Bash(1 rm:*)",
+      "Bash(cd /Users/willparks/Documents/Gauntlet/openemr-base-clean-main git status -sb)",
+      "Bash(cd /Users/willparks/Documents/Gauntlet/openemr-base-clean-main git fetch origin)",
+      "Bash(cd /Users/willparks/Documents/Gauntlet/openemr-base-clean-main git branch --set-upstream-to=origin/main main git status -sb)"
     ]
   }
 }
