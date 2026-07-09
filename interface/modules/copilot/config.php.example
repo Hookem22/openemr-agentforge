@@ -1,0 +1,32 @@
+<?php
+
+/**
+ * Clinical Co-Pilot auth-bridge config (agent-implementation.md decision #1: session-bridge).
+ *
+ * Copy this file to config.php (gitignored) and fill in real values. config.php is loaded by
+ * start.php/callback.php/proxy.php -- it is NOT autoloaded/bootstrapped anywhere else.
+ *
+ * COPILOT_CLIENT_ID / COPILOT_CLIENT_SECRET: a confidential OAuth2 client registered against this
+ * OpenEMR instance's own /oauth2/default/registration endpoint with:
+ *   - application_type: "private"          (required for user/* scopes -- see agent/README.md)
+ *   - grant_types: ["authorization_code", "refresh_token"]
+ *   - redirect_uris: ["<this site's base URL>/interface/modules/copilot/callback.php"]
+ *   - scope: same user/*.read scopes agent/README.md's dev token uses
+ * Then manually enable it: UPDATE oauth_clients SET is_enabled=1 WHERE client_id='...';
+ */
+
+const COPILOT_CLIENT_ID = 'REPLACE_ME';
+const COPILOT_CLIENT_SECRET = 'REPLACE_ME';
+
+// OpenEMR's own OAuth2 authorization server base (site_addr_oath global).
+const COPILOT_OAUTH_BASE = 'http://localhost:8080/oauth2/default';
+
+// This file's own directory's public URL, used to build the OAuth redirect_uri.
+const COPILOT_REDIRECT_URI = 'http://localhost:8080/interface/modules/copilot/callback.php';
+
+// Where the Python agent service (agent/) is reachable from this PHP process.
+const COPILOT_AGENT_BASE_URL = 'http://localhost:8000';
+
+const COPILOT_SCOPE = 'openid offline_access api:oemr api:fhir user/Patient.read user/Encounter.read '
+    . 'user/Condition.read user/MedicationRequest.read user/AllergyIntolerance.read user/Observation.read '
+    . 'user/DocumentReference.read';

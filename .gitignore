@@ -1,2 +1,8 @@
 node_modules/
 .webpack-cache/
+
+# Clinical Co-Pilot agent + auth-bridge secrets (real API keys / OAuth client secrets -- never commit)
+agent/.env
+agent/venv/
+agent/**/__pycache__/
+interface/modules/copilot/config.php

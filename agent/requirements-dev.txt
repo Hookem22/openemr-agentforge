@@ -1,0 +1,4 @@
+# Eval/dev-only extras -- NOT included in the Dockerfile's prod image (which only installs
+# requirements.txt and copies app/, not eval/). Keeps the deployed agent's dependency surface lean.
+-r requirements.txt
+pytest>=8

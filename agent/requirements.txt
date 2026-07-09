@@ -1,0 +1,11 @@
+fastapi>=0.115
+uvicorn[standard]>=0.30
+httpx>=0.27
+anthropic>=0.39
+langgraph>=0.2.34
+python-dotenv>=1.0
+pydantic>=2.9
+# Observability (agent-implementation.md decision #3): Langfuse Cloud for now. Uses the current
+# OpenTelemetry-based client API (get_client()/observe/propagate_attributes) -- the older
+# `langfuse.decorators` module (v2 SDK) no longer exists in this major version.
+langfuse>=3

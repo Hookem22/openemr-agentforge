@@ -1,5 +1,20 @@
 # ARCHITECTURE.md — Clinical Co-Pilot Integration Plan
 
+## TL;DR
+
+- **What it is**: a conversational agent embedded in the patient chart, answering the 6 use cases in `USER.md`
+  in the ~90 seconds between patient rooms.
+- **Auth**: inherits the logged-in clinician's own OAuth2/SMART-on-FHIR token — no shared credential, no
+  reimplemented access control.
+- **Trust**: every claim must cite a FHIR resource actually fetched that turn; a deterministic (non-LLM) check
+  strips anything uncited or unverifiable before the clinician sees it.
+- **Speed**: a fast parallel "core bundle" covers the most time-pressured lookups; deeper questions fetch
+  on-demand.
+- **Stack**: separate Python/LangGraph service calling OpenEMR's FHIR API over HTTPS, not embedded in OpenEMR's
+  PHP codebase.
+- **Known compliance debt**: Langfuse Cloud tracing (no BAA) is acceptable for dev/eval only — self-hosted
+  required before any "production-ready" claim.
+
 ## Summary
 
 The Clinical Co-Pilot is a conversational agent for an ED resident on overnight intake, built to answer the
@@ -195,8 +210,15 @@ to the minimum necessary.
 ## 8. Observability
 
 - **Per-request tracing**: one root span per conversational turn, child spans per tool call, using an
-  LLM-native tracing tool (Langfuse, self-hosted) — chosen because it captures token usage/cost per call
-  natively, which a generic APM tool would need custom instrumentation for.
+  LLM-native tracing tool (Langfuse) — chosen because it captures token usage/cost per call natively, which a
+  generic APM tool would need custom instrumentation for.
+- **Known compliance debt, tracked deliberately, not accidentally:** the current implementation uses
+  **Langfuse Cloud** (hosted), which receives full trace payloads — including tool call inputs/outputs, i.e.
+  real PHI — with no BAA in place. This was a conscious speed tradeoff to get real tracing running quickly
+  during early development, not an oversight. **This is not acceptable for a production/patient-facing
+  deployment.** Before this app could be considered production-ready, this must move to a self-hosted
+  Langfuse instance (own infrastructure, no third party receiving PHI without a BAA) — see the Deployment
+  section for the self-hosting plan.
 - **Metrics feeding a self-hosted Grafana dashboard**, with the assignment's required 3+ alerts:
   - **p95 turn latency > 5s** — means the Tier-2 path is regularly missing its own latency budget; on-call
     response: check Anthropic API status and OpenEMR FHIR endpoint latency first, since the agent has no

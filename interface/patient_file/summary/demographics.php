@@ -2056,6 +2056,7 @@ $oemr_ui = new OemrUI($arrOeUiSettings);
             </div> <!-- end div.main > row:first  -->
         </div> <!-- end main content div -->
     </div><!-- end container div -->
+    <?php require_once(__DIR__ . '/../../modules/copilot/widget.php'); ?>
     <?php $oemr_ui->oeBelowContainerDiv(); ?>
     <script>
         // Array of skip conditions for the checkSkipConditions() function.
