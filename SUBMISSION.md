@@ -7,9 +7,10 @@ documents for full detail on any given area.
 
 - **OpenEMR fork (public app)**: https://openemr-app-production-ded9.up.railway.app/ (login: `admin`/`pass`)
 - **Agent service**: https://copilot-agent-production-8af2.up.railway.app/ (`/health` returns `{"status":"ok"}`;
-  same Railway project as the OpenEMR app, new git-connected service built from `agent/Dockerfile`. The chat
-  widget embedded in the deployed OpenEMR app is not yet wired to it — `interface/modules/copilot/config.php`
-  is a gitignored, locally-only file with dev-only OAuth2 client/URLs; production wiring is the next step.)
+  same Railway project as the OpenEMR app, new git-connected service built from `agent/Dockerfile`). The chat
+  widget embedded in the deployed OpenEMR app is fully wired to it end-to-end: a production OAuth2 client is
+  registered against the deployed instance, and `interface/modules/copilot/config.php` is generated on every
+  container boot from Railway env vars (`docker/entrypoint.sh`) since the file itself is gitignored.
 - **GitHub repo**: https://github.com/Hookem22/openemr-agentforge (Railway-git-connected; every push to
   `main` auto-triggers a build+deploy)
 
@@ -71,10 +72,8 @@ notes kept alongside the code:
 
 ## Status / what's left
 
-- **Agent service Railway deployment**: done (see Deployed links above). Production auth-bridge wiring
-  (`interface/modules/copilot/config.php` on the deployed OpenEMR app, pointed at the deployed agent and a
-  production-registered OAuth2 client) is the immediate next step — the widget currently only works against a
-  local OpenEMR + local agent.
+- **Agent service Railway deployment**: done, including production auth-bridge wiring (see Deployed links
+  above) — the chat widget works end-to-end on the deployed app, not just locally.
 - **Load/stress testing (10 & 50 concurrent users)**: not yet done.
 - **Dashboard + 3 alerts (p95 latency, error rate, tool failure rate)**: not yet done.
 - **AI cost analysis**: not yet done.
