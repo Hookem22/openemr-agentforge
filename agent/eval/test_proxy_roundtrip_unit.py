@@ -11,7 +11,7 @@ before it's replayed to the LLM.
 """
 from __future__ import annotations
 
-from app.graph import _repair_round_tripped_tool_use_input
+from app.graph import _repair_round_tripped_tool_use_input, verify_node
 
 
 def test_corrupted_empty_object_input_is_repaired_to_a_dict():
@@ -58,3 +58,42 @@ def test_non_list_content_and_non_tool_use_blocks_are_left_untouched():
     repaired = _repair_round_tripped_tool_use_input(messages)
 
     assert repaired == messages
+
+
+def test_verify_node_appends_tool_result_for_provide_answer():
+    """Failure mode guarded: execute_tools_node deliberately never emits a tool_result for
+    provide_answer (see its `continue` there), so a turn's final stored message used to be a
+    dangling assistant tool_use with no paired tool_result. Once that message list is echoed back
+    by the client as next turn's conversation_history and a new plain-text user message is
+    appended, Anthropic rejects the whole request with `tool_use ids were found without
+    tool_result blocks immediately after` -- breaking every conversation right after its first
+    turn (a real production bug, reproduced live). verify_node must append a synthetic tool_result
+    for provide_answer's tool_use id so the stored history is always valid to replay."""
+    state = {
+        "patient_id": "p1",
+        "bearer_token": "tok",
+        "messages": [
+            {
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "id": "toolu_answer_1",
+                        "name": "provide_answer",
+                        "input": {"claims": []},
+                    }
+                ],
+            }
+        ],
+        "tool_results_this_turn": [],
+        "tool_failures": [],
+        "verified_claims": [],
+        "stripped_claims": [],
+    }
+
+    result = verify_node(state)
+
+    last_message = result["messages"][-1]
+    assert last_message["role"] == "user"
+    assert last_message["content"][0]["type"] == "tool_result"
+    assert last_message["content"][0]["tool_use_id"] == "toolu_answer_1"

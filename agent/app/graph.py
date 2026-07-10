@@ -208,6 +208,21 @@ def verify_node(state: AgentState) -> AgentState:
     result = verify_claims(claims, state["tool_results_this_turn"])
     state["verified_claims"] = result.verified_claims
     state["stripped_claims"] = result.stripped_claims
+    if tool_use is not None:
+        # Anthropic requires every tool_use block to be immediately followed by its tool_result in
+        # the next message. execute_tools_node deliberately never does this for provide_answer (it's
+        # not a real data-fetch tool, see its `continue` there), so without this the turn's stored
+        # messages -- which become next turn's client-echoed conversation_history -- end with a
+        # dangling tool_use. Replaying that plus a new plain-text user message on turn 2 gets
+        # rejected by the API with `tool_use ids were found without tool_result blocks immediately
+        # after`, breaking every multi-turn conversation right after the first turn. Append a
+        # synthetic result so the history stays valid to replay.
+        state["messages"].append(
+            {
+                "role": "user",
+                "content": [{"type": "tool_result", "tool_use_id": tool_use["id"], "content": "Answer received."}],
+            }
+        )
     client = get_client()
     client.update_current_span(
         input=claims,
