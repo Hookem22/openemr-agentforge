@@ -50,12 +50,14 @@ embedded in OpenEMR's patient chart view.
   **Documented compliance debt**: Cloud tracing sends full trace payloads (real PHI) with no BAA in place —
   acceptable for dev/eval only, must migrate to self-hosted before any "production-ready" claim (flagged
   repeatedly in code comments, `.env.example`, and `ARCHITECTURE.md`).
-- **Evaluation**: `agent/eval/` — 19 tests across 5 files, covering the verification invariant (unit),
+- **Evaluation**: `agent/eval/` — 22 tests across 6 files, covering the verification invariant (unit),
   boundary conditions (empty input, nonexistent patient, invalid auth), a safety-critical invariant (must flag
   an unflagged sulfa-allergy/sulfa-antibiotic conflict), UC-6 edge cases (empty chart vs. verified-absent
-  data), and two known upstream OpenEMR bugs (graceful degradation, not silent crash). Not happy-path-only:
-  building this suite caught and fixed two real bugs (an unhandled crash on empty input, and a missing UC-5
-  relevance-ranking rule in the system prompt). Full results and the failure-mode-per-test table: `agent/eval/README.md`.
+  data), a real multi-turn conversation-history corruption bug (unit), and two known upstream OpenEMR bugs
+  (graceful degradation, not silent crash). Not happy-path-only: building/using this suite caught and fixed
+  three real bugs (an unhandled crash on empty input, a missing UC-5 relevance-ranking rule in the system
+  prompt, and the conversation-history corruption bug below). Full results and the failure-mode-per-test
+  table: `agent/eval/README.md`.
 
 ## Notable bugs found and fixed along the way
 
@@ -69,16 +71,37 @@ notes kept alongside the code:
   raw fatal-error HTML (not JSON) on slow agent turns — fixed by ordering all three timeout layers correctly.
 - An empty chat message crashing with a raw 400 from the Anthropic API — fixed with request-boundary
   validation (found by the eval suite).
+- **Every multi-turn conversation broke after the first no-argument tool call** (`tool_use.input: Input
+  should be an object` from the Anthropic API): the OpenEMR-side proxy's PHP `json_decode(..., true)` can't
+  distinguish an empty JSON object `{}` from an empty array `[]`, so a no-argument tool call's `input: {}`
+  silently became `input: []` after round-tripping through the client-echoed conversation history. Fixed by
+  repairing that specific shape before replay (`app/graph.py`'s `_repair_round_tripped_tool_use_input`),
+  guarded by `agent/eval/test_proxy_roundtrip_unit.py`.
 
 ## Status / what's left
 
 - **Agent service Railway deployment**: done, including production auth-bridge wiring (see Deployed links
-  above) — the chat widget works end-to-end on the deployed app, not just locally.
-- **Load/stress testing (10 & 50 concurrent users)**: not yet done.
-- **Dashboard + 3 alerts (p95 latency, error rate, tool failure rate)**: not yet done.
-- **AI cost analysis**: not yet done.
+  above) — the chat widget works end-to-end on the deployed app, re-verified after fixing a production-only
+  OAuth2 `invalid_client` regression (a persistent-volume attach rotated OpenEMR's on-disk encryption key,
+  invalidating the previously-registered client's stored secret; fixed by re-registering a new client and
+  updating Railway env vars).
+- **Load/stress testing (10 & 50 concurrent users)**: done — `agent/LOADTEST.md`. Real run against the deployed
+  agent: 10 users, 0% errors, p50 8.04s/p95 24.83s; 50 users, 22% errors (all HTTP 502 at Railway's proxy
+  layer, not the app — CPU/memory stayed under 23% utilization throughout), p50 18.65s/p95 53.78s. Documents a
+  genuine scaling limit: the current single-`uvicorn`-worker deployment needs multiple workers/replicas before
+  it can safely handle 50+ concurrent long-running turns.
+- **Dashboard + 3 alerts (p95 latency, error rate, tool failure rate)**: definitions written in
+  `agent/OBSERVABILITY.md` (plus a 4th, assignment-specific verification-strip-rate alert), each with meaning +
+  on-call response, built against the trace/span structure already wired into every turn. Configuring the
+  actual alerts in the Langfuse Cloud UI is a manual click-through step against the account (not something
+  automatable from this repo).
+- **AI cost analysis**: done — `agent/COST_ANALYSIS.md`. Actual dev spend pulled from Langfuse's per-trace cost
+  data (123 traces, $2.63 total, ~$0.02/turn mean), plus projected cost at 100/1K/10K/100K users with the
+  specific architectural changes needed at each tier (prompt caching, FHIR read caching, multi-tenant routing,
+  model tiering) rather than a flat cost-per-token extrapolation.
 - **Self-hosted Langfuse migration**: intentionally deferred past this submission (documented compliance debt,
   not an oversight) — required before any "production-ready" claim.
+- **Demo video + social media post**: not yet done.
 
 ## Key documents index
 
@@ -87,4 +110,7 @@ notes kept alongside the code:
 - `ARCHITECTURE.md` — agent integration plan
 - `agent/README.md` — agent setup, dev bearer token instructions
 - `agent/eval/README.md` — eval suite results and failure-mode table
+- `agent/LOADTEST.md` — load/stress test results (10 & 50 concurrent users) + baseline CPU/memory profile
+- `agent/OBSERVABILITY.md` — dashboard + alert definitions (p95 latency, error rate, tool failure rate, strip rate)
+- `agent/COST_ANALYSIS.md` — actual dev spend + projected cost at scale
 - `docs/seed-sample-patients.sql`, `docs/seed-additional-patients.sql` — sample patient data

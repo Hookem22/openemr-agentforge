@@ -25,17 +25,18 @@ invocation details. Run a single file with e.g. `pytest eval/test_verifier_unit.
 
 ## Cost note
 
-`test_verifier_unit.py` is pure unit tests (no LLM/FHIR calls) -- free and near-instant. Every other
-file makes real Anthropic API calls and real local FHIR requests through the full LangGraph
-pipeline (deliberately -- this is an eval of the deployed agent's actual behavior, not a mocked
-harness), so cost and runtime scale with the number of integration tests. Run
-`test_verifier_unit.py` alone for a free, fast smoke check.
+`test_verifier_unit.py` and `test_proxy_roundtrip_unit.py` are pure unit tests (no LLM/FHIR calls) --
+free and near-instant. Every other file makes real Anthropic API calls and real local FHIR requests
+through the full LangGraph pipeline (deliberately -- this is an eval of the deployed agent's actual
+behavior, not a mocked harness), so cost and runtime scale with the number of integration tests. Run
+the two `*_unit.py` files alone for a free, fast smoke check.
 
 ## Test files and what they guard
 
 | File | Guards against |
 |---|---|
 | `test_verifier_unit.py` | The core verification invariant (claims only pass if their cited source was actually fetched this turn) at the unit level -- hallucinated citations, malformed sources, unconfirmed no_data claims, resource_type/id cross-matching. |
+| `test_proxy_roundtrip_unit.py` | A real production bug: the OpenEMR-side proxy's PHP `json_decode(..., true)` can't distinguish an empty JSON object `{}` from an empty array `[]`, so a no-argument tool call's `input: {}` comes back as `input: []` after round-tripping through conversation history -- breaking every turn after the first no-argument tool call with `tool_use.input: Input should be an object`. Guards the repair function that fixes this before replay. |
 | `test_boundary_conditions.py` | Empty message input; nonexistent patient_id (documents a known gap -- OpenEMR's FHIR API can't distinguish a nonexistent patient from a real empty chart); invalid bearer token degrading to `tool_failures` instead of crashing. |
 | `test_clinical_safety.py` | The single highest-stakes case: Robert Chen's unflagged sulfa-allergy/sulfa-antibiotic conflict must be surfaced by cross-referencing structured data, cite a real source even though it's safety-critical, and deprioritize (not blend in) his unrelated knee history for a cardiac complaint. |
 | `test_use_case_edge_cases.py` | James Whitfield (truly empty chart -- every non-demographic claim must be `no_data`) vs. Dorothy Simmons (an explicit verified-absent NKDA entry -- must NOT be reported as `no_data`, since that would erase the fact someone actually checked). |
@@ -43,10 +44,9 @@ harness), so cost and runtime scale with the number of integration tests. Run
 
 ## Results
 
-Last run: **19/19 passed** (`pytest -v`, local OpenEMR + live Anthropic API, ~110s wall time).
+Last run: **22/22 passed** (`pytest -v`, local OpenEMR + live Anthropic API, ~110s wall time).
 
-Two real issues were found and fixed by this suite while it was being built (not a happy-path-only
-result):
+Three real issues were found and fixed while building/using this agent (not a happy-path-only result):
 1. **Real crash bug fixed**: an empty `message` was passed straight through to the Anthropic API,
    which rejects empty content and raised an unhandled 400 mid-turn. Fixed with a pydantic
    validator on `ChatRequest` in `app/main.py` (system-boundary validation -> clean 422 instead of
@@ -55,6 +55,11 @@ result):
    against a presenting complaint (UC-5) -- Robert Chen's unrelated knee osteoarthritis was
    sometimes listed flatly alongside his cardiac findings instead of being deprioritized. Added an
    explicit relevance-ranking rule to `SYSTEM_PROMPT` in `app/graph.py`.
+3. **Real multi-turn crash bug fixed** (found via live testing, not this suite -- then backfilled
+   into it): `interface/modules/copilot/proxy.php`'s PHP JSON round trip silently turned a
+   no-argument tool call's `input: {}` into `input: []`, breaking the *second* turn of every
+   conversation that had used a no-argument tool in the first turn. Fixed in
+   `app/graph.py`'s `_repair_round_tripped_tool_use_input`, guarded by `test_proxy_roundtrip_unit.py`.
 
 **Known, documented, unresolved gap** (`test_nonexistent_patient_id_does_not_crash`): OpenEMR's FHIR
 search API returns an empty-but-200 Bundle for a `patient_id` that doesn't exist at all --

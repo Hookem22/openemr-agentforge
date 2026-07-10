@@ -208,11 +208,15 @@ def verify_node(state: AgentState) -> AgentState:
     result = verify_claims(claims, state["tool_results_this_turn"])
     state["verified_claims"] = result.verified_claims
     state["stripped_claims"] = result.stripped_claims
-    get_client().update_current_span(
+    client = get_client()
+    client.update_current_span(
         input=claims,
         output={"verified": result.verified_claims, "stripped": result.stripped_claims},
         metadata={"strip_rate": result.strip_rate},
     )
+    # Also emit as a numeric Score (not just span metadata) so it's selectable under the Langfuse
+    # Monitor UI's "Scores (numeric)" view -- metadata fields aren't directly alertable there.
+    client.score_current_trace(name="strip_rate", value=result.strip_rate, data_type="NUMERIC")
     return state
 
 
@@ -231,11 +235,33 @@ def build_graph():
 COMPILED_GRAPH = build_graph()
 
 
+def _repair_round_tripped_tool_use_input(messages: list[dict]) -> list[dict]:
+    """Defensive fix for a lossy round trip, not a design choice: the OpenEMR-side proxy
+    (interface/modules/copilot/proxy.php) decodes the client-echoed conversation history with PHP's
+    json_decode(..., true), which turns every JSON object into a PHP associative array -- an empty
+    JSON object `{}` (e.g. a no-argument tool call's input, see tools.py's several
+    `properties: {}` schemas) is then indistinguishable from an empty array and re-encodes as `[]`.
+    Anthropic's API requires tool_use.input to always be a JSON object, so repair that specific
+    shape before it's replayed -- without this, any turn after the first tool call with no
+    arguments (get_patient, get_conditions, get_allergies, get_vitals, get_labs, get_notes,
+    diff_encounters) breaks every subsequent turn in the conversation.
+    """
+    for message in messages:
+        content = message.get("content")
+        if not isinstance(content, list):
+            continue
+        for block in content:
+            if isinstance(block, dict) and block.get("type") == "tool_use" and block.get("input") == []:
+                block["input"] = {}
+    return messages
+
+
 @observe(name="copilot_chat_turn")
 def run_turn(patient_id: str, bearer_token: str, user_message: str, prior_messages: list[dict] | None = None) -> AgentState:
     # session_id=patient_id groups every turn of one patient's conversation into one Langfuse
     # session view. NOTE this itself is PHI-adjacent -- covered by the compliance-debt flag above.
     with propagate_attributes(session_id=patient_id):
+        prior_messages = _repair_round_tripped_tool_use_input(prior_messages or [])
         client = get_client()
         client.set_current_trace_io(input=user_message)
         messages = (prior_messages or []) + [{"role": "user", "content": user_message}]
