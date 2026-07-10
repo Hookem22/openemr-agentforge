@@ -47,9 +47,12 @@ embedded in OpenEMR's patient chart view.
 - **Observability**: Langfuse Cloud tracing wired into every LangGraph node — one trace per chat turn, with
   child spans for the LLM call (model, tokens, input/output), each individual tool invocation (so per-tool
   failures are visible, not just aggregated), and the verifier (strip rate, verified/stripped claims).
-  **Documented compliance debt**: Cloud tracing sends full trace payloads (real PHI) with no BAA in place —
-  acceptable for dev/eval only, must migrate to self-hosted before any "production-ready" claim (flagged
-  repeatedly in code comments, `.env.example`, and `ARCHITECTURE.md`).
+  **PHI redacted in code before it reaches Langfuse Cloud**: every `@observe` decorator disables Langfuse's
+  default auto-capture of function args/return values, and every manual telemetry call sends only counts,
+  names, flags, and numeric scores — never PHI or the bearer token; session grouping uses a salted hash of
+  the patient ID, not the raw FHIR UUID. Full inventory + live verification against the Langfuse Cloud public
+  API: `agent/PHI_AUDIT.md`. Full self-hosting remains a documented, deferred future option
+  (`agent/LANGFUSE_SELFHOST.md`), not required given this redaction.
 - **Evaluation**: `agent/eval/` — 22 tests across 6 files, covering the verification invariant (unit),
   boundary conditions (empty input, nonexistent patient, invalid auth), a safety-critical invariant (must flag
   an unflagged sulfa-allergy/sulfa-antibiotic conflict), UC-6 edge cases (empty chart vs. verified-absent
@@ -99,8 +102,9 @@ notes kept alongside the code:
   data (123 traces, $2.63 total, ~$0.02/turn mean), plus projected cost at 100/1K/10K/100K users with the
   specific architectural changes needed at each tier (prompt caching, FHIR read caching, multi-tenant routing,
   model tiering) rather than a flat cost-per-token extrapolation.
-- **Self-hosted Langfuse migration**: intentionally deferred past this submission (documented compliance debt,
-  not an oversight) — required before any "production-ready" claim.
+- **Langfuse Cloud PHI compliance**: done via code-level redaction — `agent/PHI_AUDIT.md`. Full self-hosting
+  remains intentionally deferred (`agent/LANGFUSE_SELFHOST.md`), since it's no longer required for compliance,
+  just a stronger infrastructure-level guarantee if ever needed.
 - **Demo video + social media post**: not yet done.
 
 ## Key documents index
@@ -113,4 +117,6 @@ notes kept alongside the code:
 - `agent/LOADTEST.md` — load/stress test results (10 & 50 concurrent users) + baseline CPU/memory profile
 - `agent/OBSERVABILITY.md` — dashboard + alert definitions (p95 latency, error rate, tool failure rate, strip rate)
 - `agent/COST_ANALYSIS.md` — actual dev spend + projected cost at scale
+- `agent/PHI_AUDIT.md` — PHI redaction inventory + justification for Langfuse Cloud (no BAA) being acceptable
+- `agent/LANGFUSE_SELFHOST.md` — deferred future plan for full Langfuse self-hosting (Option A)
 - `docs/seed-sample-patients.sql`, `docs/seed-additional-patients.sql` — sample patient data

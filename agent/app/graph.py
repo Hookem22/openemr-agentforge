@@ -9,14 +9,26 @@ Observability (agent-implementation.md decision #3): each node below is wrapped 
 `@observe` decorator, so a single chat turn produces one trace (`run_turn`) with child spans for
 the LLM call, each individual tool call, and the verifier -- giving per-step latency, tool
 failures, and token usage exactly as the assignment's observability requirement asks for.
-COMPLIANCE DEBT, not resolved by this: this currently points at Langfuse Cloud, so these trace
-payloads (full LLM messages + tool inputs/outputs, i.e. real PHI) leave our infra with no BAA in
-place. Fine for dev/eval; must move to self-hosted Langfuse before any "production-ready" claim.
+
+PHI REDACTION (see PHI_AUDIT.md for the full inventory/justification): Langfuse's `@observe`
+decorator auto-captures a wrapped function's arguments and return value by default (confirmed via
+the SDK source -- `capture_input`/`capture_output` resolve to `LANGFUSE_OBSERVE_DECORATOR_IO_CAPTURE_
+ENABLED`, which defaults to enabled). Every function below carries real PHI (patient name/DOB,
+diagnoses, medications, allergies, vitals, labs, notes, full conversation messages) and/or the raw
+FHIR bearer token in its arguments or return value, so every `@observe` decorator here explicitly
+sets `capture_input=False, capture_output=False` to disable that auto-capture, and any telemetry
+we DO want (latency, token counts, tool names, result counts, error flags, strip rate) is sent
+manually via `update_current_generation`/`update_current_span`/`set_current_trace_io` using
+redacted/summarized values only -- never raw PHI or the bearer token. This is why Langfuse Cloud
+(no BAA) is acceptable here: see PHI_AUDIT.md for the call-site-by-call-site justification, and
+LANGFUSE_SELFHOST.md for the deferred full self-host plan (Option A) if this redaction approach is
+ever judged insufficient.
 If LANGFUSE_PUBLIC_KEY/SECRET_KEY are unset (see .env.example), the client logs an "Authentication
 error... Client will be disabled" warning per call but does not raise -- the agent still runs.
 """
 from __future__ import annotations
 
+import hashlib
 import httpx
 from typing import TypedDict
 
@@ -107,7 +119,7 @@ def _anthropic_client() -> Anthropic:
     return Anthropic(api_key=settings.anthropic_api_key)
 
 
-@observe(as_type="generation", name="agent_llm_call")
+@observe(as_type="generation", name="agent_llm_call", capture_input=False, capture_output=False)
 def agent_node(state: AgentState) -> AgentState:
     client = _anthropic_client()
     response = client.messages.create(
@@ -117,13 +129,17 @@ def agent_node(state: AgentState) -> AgentState:
         tools=TOOL_SCHEMAS + [PROVIDE_ANSWER_TOOL],
         messages=state["messages"],
     )
+    assistant_content = response.model_dump()["content"]
+    # Redacted: no message text/content (PHI) sent to Langfuse -- only counts and tool names, which
+    # are never patient data (see PHI_AUDIT.md).
+    tool_calls_requested = [b["name"] for b in assistant_content if b.get("type") == "tool_use"]
     get_client().update_current_generation(
         model=settings.anthropic_model,
-        input=state["messages"],
-        output=response.model_dump()["content"],
+        input={"message_count": len(state["messages"])},
+        output={"stop_reason": response.stop_reason, "tool_calls_requested": tool_calls_requested},
         usage_details={"input": response.usage.input_tokens, "output": response.usage.output_tokens},
     )
-    state["messages"].append({"role": "assistant", "content": response.model_dump()["content"]})
+    state["messages"].append({"role": "assistant", "content": assistant_content})
     return state
 
 
@@ -146,17 +162,27 @@ def route_after_agent(state: AgentState) -> str:
     return "execute_tools"
 
 
-@observe(name="tool_call", as_type="tool")
+@observe(name="tool_call", as_type="tool", capture_input=False, capture_output=False)
 def _call_tool(fhir: FhirClient, patient_id: str, name: str, tool_input: dict):
     """Thin wrapper so each individual tool call gets its own Langfuse span (name, input, latency,
     and -- if it raises -- the error, since @observe auto-records exceptions raised through it),
-    rather than only seeing the aggregate execute_tools span."""
+    rather than only seeing the aggregate execute_tools span.
+
+    Redacted: `fhir` (holds the bearer token) and `patient_id` are excluded from auto-capture via
+    capture_input=False. `tool_input` (e.g. {"count": 5}) has no PHI per tools.py's schemas, so it's
+    still logged explicitly. The tool's return value (real PHI) is never logged -- only its count.
+    """
     get_client().update_current_span(name=f"tool:{name}", input=tool_input)
-    return TOOL_FUNCTIONS[name](fhir, patient_id, **tool_input)
+    result = TOOL_FUNCTIONS[name](fhir, patient_id, **tool_input)
+    get_client().update_current_span(output={"result_count": len(result) if isinstance(result, list) else 1})
+    return result
 
 
-@observe(name="execute_tools")
+@observe(name="execute_tools", capture_input=False, capture_output=False)
 def execute_tools_node(state: AgentState) -> AgentState:
+    # Redacted: `state` (arg and return value) holds the bearer token and every tool result this
+    # turn -- capture_input/output=False above stops @observe from auto-logging it. A safe summary
+    # (counts only) is logged manually below instead.
     last = state["messages"][-1]
     fhir = FhirClient(state["bearer_token"])
     tool_result_blocks = []
@@ -198,10 +224,17 @@ def execute_tools_node(state: AgentState) -> AgentState:
         tool_result_blocks.append({"type": "tool_result", "tool_use_id": tool_use_id, "content": str(result)})
 
     state["messages"].append({"role": "user", "content": tool_result_blocks})
+    get_client().update_current_span(
+        input={"tool_calls_requested": len(tool_result_blocks)},
+        output={
+            "tool_failures": len(state["tool_failures"]),
+            "results_collected": len(state["tool_results_this_turn"]),
+        },
+    )
     return state
 
 
-@observe(name="verify_claims")
+@observe(name="verify_claims", capture_input=False, capture_output=False)
 def verify_node(state: AgentState) -> AgentState:
     tool_use = _final_tool_use(state)
     claims = tool_use["input"].get("claims", []) if tool_use else []
@@ -224,9 +257,11 @@ def verify_node(state: AgentState) -> AgentState:
             }
         )
     client = get_client()
+    # Redacted: claim text and verified/stripped claim contents are real clinical claims (PHI) --
+    # only counts and the strip_rate (a ratio, not patient data) are sent to Langfuse.
     client.update_current_span(
-        input=claims,
-        output={"verified": result.verified_claims, "stripped": result.stripped_claims},
+        input={"claim_count": len(claims)},
+        output={"verified_count": len(result.verified_claims), "stripped_count": len(result.stripped_claims)},
         metadata={"strip_rate": result.strip_rate},
     )
     # Also emit as a numeric Score (not just span metadata) so it's selectable under the Langfuse
@@ -271,14 +306,23 @@ def _repair_round_tripped_tool_use_input(messages: list[dict]) -> list[dict]:
     return messages
 
 
-@observe(name="copilot_chat_turn")
+def _hashed_session_id(patient_id: str) -> str:
+    """Groups a patient's chat turns into one Langfuse session view without sending Langfuse the
+    raw FHIR patient UUID (see PHI_AUDIT.md). Salted, one-way hash -- not reversible by Langfuse."""
+    salted = f"{settings.langfuse_session_salt}:{patient_id}".encode()
+    return hashlib.sha256(salted).hexdigest()[:16]
+
+
+@observe(name="copilot_chat_turn", capture_input=False, capture_output=False)
 def run_turn(patient_id: str, bearer_token: str, user_message: str, prior_messages: list[dict] | None = None) -> AgentState:
-    # session_id=patient_id groups every turn of one patient's conversation into one Langfuse
-    # session view. NOTE this itself is PHI-adjacent -- covered by the compliance-debt flag above.
-    with propagate_attributes(session_id=patient_id):
+    # Redacted: patient_id, bearer_token, user_message (clinician's literal question), and
+    # prior_messages (full conversation) are all PHI/credentials -- capture_input/output=False
+    # above stops @observe from auto-logging this function's args/return value. session_id uses a
+    # salted hash of patient_id, not the raw FHIR UUID, so Langfuse never sees it.
+    with propagate_attributes(session_id=_hashed_session_id(patient_id)):
         prior_messages = _repair_round_tripped_tool_use_input(prior_messages or [])
         client = get_client()
-        client.set_current_trace_io(input=user_message)
+        client.set_current_trace_io(input={"message_length": len(user_message)})
         messages = (prior_messages or []) + [{"role": "user", "content": user_message}]
         initial_state: AgentState = {
             "patient_id": patient_id,

@@ -12,8 +12,9 @@
   on-demand.
 - **Stack**: separate Python/LangGraph service calling OpenEMR's FHIR API over HTTPS, not embedded in OpenEMR's
   PHP codebase.
-- **Known compliance debt**: Langfuse Cloud tracing (no BAA) is acceptable for dev/eval only — self-hosted
-  required before any "production-ready" claim.
+- **Langfuse Cloud PHI compliance**: trace payloads are redacted in code (no PHI, no bearer token, hashed
+  patient ID) before they leave the agent — see `agent/PHI_AUDIT.md`. Full self-hosting is documented as a
+  deferred future hardening step in `agent/LANGFUSE_SELFHOST.md`, not required given the redaction in place.
 
 ## Summary
 
@@ -212,14 +213,21 @@ to the minimum necessary.
 - **Per-request tracing**: one root span per conversational turn, child spans per tool call, using an
   LLM-native tracing tool (Langfuse) — chosen because it captures token usage/cost per call natively, which a
   generic APM tool would need custom instrumentation for.
-- **Known compliance debt, tracked deliberately, not accidentally:** the current implementation uses
-  **Langfuse Cloud** (hosted), which receives full trace payloads — including tool call inputs/outputs, i.e.
-  real PHI — with no BAA in place. This was a conscious speed tradeoff to get real tracing running quickly
-  during early development, not an oversight. **This is not acceptable for a production/patient-facing
-  deployment.** Before this app could be considered production-ready, this must move to a self-hosted
-  Langfuse instance (own infrastructure, no third party receiving PHI without a BAA) — see the Deployment
-  section for the self-hosting plan.
-- **Metrics feeding a self-hosted Grafana dashboard**, with the assignment's required 3+ alerts:
+- **Langfuse Cloud PHI compliance (resolved via redaction, not self-hosting):** the agent uses Langfuse
+  Cloud (hosted), and early in development its trace payloads included full tool call inputs/outputs and
+  LLM messages — real PHI — with no BAA in place. This was flagged as compliance debt and has since been
+  fixed in code: every `@observe` decorator in `agent/app/graph.py` explicitly disables Langfuse's default
+  auto-capture of function arguments/return values, and every manual telemetry call was rewritten to send
+  only counts, names, flags, and numeric scores — never PHI or the bearer token, and the patient ID used for
+  session grouping is a salted hash, not the raw FHIR UUID. Full call-site inventory, live verification
+  against the Langfuse Cloud public API, and residual-risk notes are in `agent/PHI_AUDIT.md`. A stronger,
+  infrastructure-level alternative (self-hosting Langfuse so no third party is in the loop at all,
+  regardless of payload content) is documented as a deferred future step in `agent/LANGFUSE_SELFHOST.md`,
+  not required given the redaction already in place.
+- **Dashboard**: Langfuse Cloud's built-in trace/observation explorer serves as the dashboard (see
+  `agent/OBSERVABILITY.md`) — no separate Grafana stack was needed, since every metric the required alerts
+  reference (latency, error status, tool-call name/status, strip rate) is already emitted per-turn by the
+  redacted `@observe` instrumentation above. Required alerts (configured against Langfuse):
   - **p95 turn latency > 5s** — means the Tier-2 path is regularly missing its own latency budget; on-call
     response: check Anthropic API status and OpenEMR FHIR endpoint latency first, since the agent has no
     heavy compute of its own.

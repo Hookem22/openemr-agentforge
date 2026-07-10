@@ -20,5 +20,11 @@ class Settings:
     # See agent-implementation.md decision #1 (session-bridge, deferred until the agent itself works).
     dev_bearer_token: str = os.environ.get("DEV_BEARER_TOKEN", "")
 
+    # Salt used to hash the FHIR patient UUID before it's sent to Langfuse Cloud as a session_id
+    # grouping key (see PHI_AUDIT.md). Not a security control -- just keeps the raw patient
+    # identifier out of the third-party trace payload. If unset, falls back to a fixed dev-only
+    # string (documented in .env.example); set a real random value in production.
+    langfuse_session_salt: str = os.environ.get("LANGFUSE_SESSION_SALT", "dev-only-unset-salt")
+
 
 settings = Settings()
