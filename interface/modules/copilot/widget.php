@@ -13,6 +13,13 @@
 use OpenEMR\Common\Csrf\CsrfUtils;
 
 $copilotCsrfToken = CsrfUtils::collectCsrfToken(session: $session);
+
+// Snapshot of whether this session already has a copilot OAuth session-bridge token, so the widget
+// can show the "Authorize" prompt immediately on open instead of waiting for a failed chat attempt.
+// This is a point-in-time check (a token present here could still turn out to be expired with no
+// refresh token by the time a message is actually sent) -- the existing 401-driven reauth flow in
+// the JS below still covers that case; this is purely a UX improvement, not a new auth boundary.
+$copilotIsAuthorized = !empty($session->get('copilot_access_token'));
 ?>
 <div id="copilot-widget">
     <button id="copilot-toggle" type="button" class="btn btn-primary" style="position:fixed; bottom:20px; right:20px; z-index:1050; border-radius:24px;">
@@ -31,16 +38,21 @@ $copilotCsrfToken = CsrfUtils::collectCsrfToken(session: $session);
 (function () {
     const pid = <?php echo js_escape($pid); ?>;
     let csrfToken = <?php echo js_escape($copilotCsrfToken); ?>;
+    let isAuthorized = <?php echo $copilotIsAuthorized ? 'true' : 'false'; ?>;
     const proxyUrl = <?php echo js_escape($GLOBALS['web_root'] ?? ''); ?> + '/interface/modules/copilot/proxy.php';
     const startUrl = <?php echo js_escape($GLOBALS['web_root'] ?? ''); ?> + '/interface/modules/copilot/start.php';
+    const QUICK_START_MESSAGE = "Tell me about this patient before today's visit";
 
     let conversationHistory = [];
+    let quickStartEl = null;
+    let loadingEl = null;
 
     const toggleBtn = document.getElementById('copilot-toggle');
     const panel = document.getElementById('copilot-panel');
     const messagesEl = document.getElementById('copilot-messages');
     const form = document.getElementById('copilot-form');
     const input = document.getElementById('copilot-input');
+    const sendBtn = form.querySelector('button[type="submit"]');
 
     toggleBtn.addEventListener('click', function () {
         panel.style.display = (panel.style.display === 'none') ? 'flex' : 'none';
@@ -59,12 +71,63 @@ $copilotCsrfToken = CsrfUtils::collectCsrfToken(session: $session);
         messagesEl.scrollTop = messagesEl.scrollHeight;
     }
 
+    function showLoading() {
+        if (loadingEl) {
+            return;
+        }
+        loadingEl = document.createElement('div');
+        loadingEl.style.margin = '4px 0';
+        loadingEl.style.fontStyle = 'italic';
+        loadingEl.style.color = '#888';
+        loadingEl.textContent = 'Thinking...';
+        messagesEl.appendChild(loadingEl);
+        messagesEl.scrollTop = messagesEl.scrollHeight;
+        input.disabled = true;
+        sendBtn.disabled = true;
+    }
+
+    function hideLoading() {
+        if (loadingEl) {
+            loadingEl.remove();
+            loadingEl = null;
+        }
+        input.disabled = false;
+        sendBtn.disabled = false;
+    }
+
+    function addQuickStartPrompt() {
+        if (quickStartEl || !isAuthorized) {
+            return;
+        }
+        const div = document.createElement('div');
+        div.style.margin = '4px 0';
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'btn btn-sm btn-outline-primary';
+        btn.textContent = QUICK_START_MESSAGE;
+        btn.addEventListener('click', function () {
+            submitMessage(QUICK_START_MESSAGE);
+        });
+        div.appendChild(btn);
+        messagesEl.appendChild(div);
+        messagesEl.scrollTop = messagesEl.scrollHeight;
+        quickStartEl = div;
+    }
+
+    function removeQuickStartPrompt() {
+        if (quickStartEl) {
+            quickStartEl.remove();
+            quickStartEl = null;
+        }
+    }
+
     // window.open() only bypasses the popup blocker when called synchronously inside a real user
     // gesture (e.g. a click handler) -- calling it from inside a fetch().then() callback (as the
     // 401 response arrives asynchronously) gets silently blocked by the browser. So instead of
     // auto-opening on 401, render a button the clinician must click; that click is the gesture the
-    // popup needs.
-    function addAuthorizePrompt(pendingMessage) {
+    // popup needs. `onAuthorized` runs once the popup reports success -- either resuming a pending
+    // message (mid-conversation reauth) or just unlocking the quick-start prompt (first-open case).
+    function addAuthorizePrompt(onAuthorized) {
         const div = document.createElement('div');
         div.style.margin = '4px 0';
         const btn = document.createElement('button');
@@ -86,9 +149,8 @@ $copilotCsrfToken = CsrfUtils::collectCsrfToken(session: $session);
                 if (event.data && event.data.type === 'copilot-authorized') {
                     window.removeEventListener('message', onMessage);
                     div.remove();
-                    send(pendingMessage).then(renderAnswer).catch(function (err) {
-                        addLine('Error: ' + err.message, 'warn');
-                    });
+                    isAuthorized = true;
+                    onAuthorized();
                 }
             }
             window.addEventListener('message', onMessage);
@@ -153,21 +215,45 @@ $copilotCsrfToken = CsrfUtils::collectCsrfToken(session: $session);
         });
     }
 
+    function submitMessage(message) {
+        removeQuickStartPrompt();
+        addLine(message, 'user');
+        showLoading();
+        send(message).then(function (result) {
+            hideLoading();
+            renderAnswer(result);
+        }).catch(function (err) {
+            hideLoading();
+            if (err.reauthRequired) {
+                addAuthorizePrompt(function () {
+                    submitMessage(message);
+                });
+                return;
+            }
+            addLine('Error: ' + err.message, 'warn');
+        });
+    }
+
     form.addEventListener('submit', function (e) {
         e.preventDefault();
         const message = input.value.trim();
         if (!message) {
             return;
         }
-        addLine(message, 'user');
         input.value = '';
-        send(message).then(renderAnswer).catch(function (err) {
-            if (err.reauthRequired) {
-                addAuthorizePrompt(message);
-                return;
-            }
-            addLine('Error: ' + err.message, 'warn');
-        });
+        submitMessage(message);
     });
+
+    // First-open state: prompt for authorization immediately if this session doesn't already have a
+    // copilot token, rather than waiting for the clinician to type a message and hit a 401. Once
+    // authorized (or if already authorized on load), show a one-click prompt for the standard
+    // "what changed" opener instead of requiring the clinician to type it out.
+    if (isAuthorized) {
+        addQuickStartPrompt();
+    } else {
+        addAuthorizePrompt(function () {
+            addQuickStartPrompt();
+        });
+    }
 })();
 </script>
