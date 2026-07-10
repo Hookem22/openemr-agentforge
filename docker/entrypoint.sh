@@ -18,6 +18,20 @@ set -euo pipefail
 
 SITE_DIR=/var/www/html/sites/default
 
+# sites/default/documents is now a persistent Railway volume (mounted empty on first attach) so that
+# CryptoGen's on-disk "drive" key set (sites/default/documents/logs_and_misc/methods/*) and the OAuth2
+# certs (documents/certificates/oa{private,public}.key) survive redeploys -- without this, every deploy
+# rebuilt the container filesystem from the image, silently generating a brand-new random drive key each
+# time, which could no longer decrypt anything (e.g. oauth_clients.client_secret) encrypted under the
+# previous deploy's key (observed directly: token exchange failing with invalid_client after a redeploy).
+# But a freshly-attached empty volume also means none of the subdirectories OpenEMR expects under
+# documents/ exist yet, and file writes into a missing subdirectory fail outright (observed directly:
+# OAuth2KeyConfig/CryptoGen mkdir/file_put_contents warnings, "key could not be stored, encoded or
+# encrypted correctly") -- so recreate the expected subdirectory tree and ownership on every boot,
+# idempotently (harmless no-op once the volume already has them from a prior boot).
+mkdir -p "$SITE_DIR/documents"/{edi,temp,couchdb,era,certificates,onsite_portal_documents/templates,logs_and_misc/methods,letter_templates,procedure_results,custom_menus/patient_menus}
+chown -R www-data:www-data "$SITE_DIR/documents"
+
 cat > "$SITE_DIR/sqlconf.php" <<PHP
 <?php
 //  OpenEMR
