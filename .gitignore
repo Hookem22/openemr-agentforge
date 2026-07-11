@@ -1,8 +1,17 @@
 node_modules/
 .webpack-cache/
+.DS_Store
 
 # Clinical Co-Pilot agent + auth-bridge secrets (real API keys / OAuth client secrets -- never commit)
 agent/.env
 agent/venv/
 agent/**/__pycache__/
 interface/modules/copilot/config.php
+
+# Local Claude Code settings (personal, machine-specific)
+.claude/settings.local.json
+
+# OpenEMR CryptoGen key material -- bootstrapped per-deployment on the persistent volume; committing
+# these would let anyone with repo access decrypt stored secrets (e.g. oauth_clients.client_secret)
+sites/default/documents/certificates/
+sites/default/documents/logs_and_misc/methods/
