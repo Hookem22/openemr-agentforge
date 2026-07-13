@@ -13,8 +13,8 @@
 - **Stack**: separate Python/LangGraph service calling OpenEMR's FHIR API over HTTPS, not embedded in OpenEMR's
   PHP codebase.
 - **Langfuse Cloud PHI compliance**: trace payloads are redacted in code (no PHI, no bearer token, hashed
-  patient ID) before they leave the agent — see `agent/PHI_AUDIT.md`. Full self-hosting is documented as a
-  deferred future hardening step in `agent/LANGFUSE_SELFHOST.md`, not required given the redaction in place.
+  patient ID) before they leave the agent — see `PHI_AUDIT.md`. Full self-hosting is documented as a
+  deferred future hardening step in `LANGFUSE_SELFHOST.md`, not required given the redaction in place.
 
 ## Summary
 
@@ -112,10 +112,10 @@ graph TB
     class ChatUI,Agent,Tools,Allowlist,Verifier,LLM,Obs newStyle
 ```
 
-![Architecture diagram](docs/architecture-diagram.png)
+![Architecture diagram](architecture-diagram.png)
 
-(Source: `docs/architecture-diagram.mmd` — the Mermaid block above and this PNG are kept in sync; regenerate
-the PNG with `npx @mermaid-js/mermaid-cli -i docs/architecture-diagram.mmd -o docs/architecture-diagram.png -b white -s 2`
+(Source: `architecture-diagram.mmd` — the Mermaid block above and this PNG are kept in sync; regenerate
+the PNG with `npx @mermaid-js/mermaid-cli -i architecture-diagram.mmd -o architecture-diagram.png -b white -s 2`
 if the diagram changes.)
 
 The agent is a new, additive layer (blue) sitting entirely on top of OpenEMR's existing auth, ACL, FHIR API,
@@ -220,12 +220,12 @@ to the minimum necessary.
   auto-capture of function arguments/return values, and every manual telemetry call was rewritten to send
   only counts, names, flags, and numeric scores — never PHI or the bearer token, and the patient ID used for
   session grouping is a salted hash, not the raw FHIR UUID. Full call-site inventory, live verification
-  against the Langfuse Cloud public API, and residual-risk notes are in `agent/PHI_AUDIT.md`. A stronger,
+  against the Langfuse Cloud public API, and residual-risk notes are in `PHI_AUDIT.md`. A stronger,
   infrastructure-level alternative (self-hosting Langfuse so no third party is in the loop at all,
-  regardless of payload content) is documented as a deferred future step in `agent/LANGFUSE_SELFHOST.md`,
+  regardless of payload content) is documented as a deferred future step in `LANGFUSE_SELFHOST.md`,
   not required given the redaction already in place.
 - **Dashboard**: Langfuse Cloud's built-in trace/observation explorer serves as the dashboard (see
-  `agent/OBSERVABILITY.md`) — no separate Grafana stack was needed, since every metric the required alerts
+  `OBSERVABILITY.md`) — no separate Grafana stack was needed, since every metric the required alerts
   reference (latency, error status, tool-call name/status, strip rate) is already emitted per-turn by the
   redacted `@observe` instrumentation above. Required alerts (configured against Langfuse):
   - **p95 turn latency > 5s** — means the Tier-2 path is regularly missing its own latency budget; on-call

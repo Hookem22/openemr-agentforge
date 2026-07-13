@@ -1,6 +1,6 @@
 # Clinical Co-Pilot Agent (dev skeleton)
 
-Python/FastAPI + LangGraph service implementing the design in `../ARCHITECTURE.md`. Currently a
+Python/FastAPI + LangGraph service implementing the design in `../Gauntlet/Week 1/ARCHITECTURE.md`. Currently a
 standalone service tested with a manually-obtained dev token — the real per-session auth-bridge
 endpoint (OpenEMR side) hasn't been built yet; see `../` memory `agent-implementation.md` for the
 build-order rationale.

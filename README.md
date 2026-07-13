@@ -23,8 +23,11 @@
 ## AgentForge: Clinical Co-Pilot (this fork)
 
 This is a fork of OpenEMR used to build the "Clinical Co-Pilot" agent project (Gauntlet AI, AgentForge). See
-[`USER.md`](USER.md) for the target user and use cases, [`AUDIT.md`](AUDIT.md) for the security/compliance
-audit, and [`ARCHITECTURE.md`](ARCHITECTURE.md) for the agent integration plan.
+[`Gauntlet/Week 1/USER.md`](Gauntlet/Week%201/USER.md) for the target user and use cases,
+[`Gauntlet/Week 1/AUDIT.md`](Gauntlet/Week%201/AUDIT.md) for the security/compliance audit,
+[`Gauntlet/Week 1/ARCHITECTURE.md`](Gauntlet/Week%201/ARCHITECTURE.md) for the Week 1 agent integration plan,
+and [`Gauntlet/Week 2/W2_ARCHITECTURE.md`](Gauntlet/Week%202/W2_ARCHITECTURE.md) for the Week 2 multimodal
+evidence agent plan. [`Gauntlet/SUBMISSION.md`](Gauntlet/SUBMISSION.md) is the overall submission index.
 
 **Deployed URL:** https://openemr-app-production-ded9.up.railway.app/ (login: `admin` / `pass`)
 
