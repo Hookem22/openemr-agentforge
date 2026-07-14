@@ -1,0 +1,393 @@
+{
+  "components": {
+    "schemas": {
+      "Body_ingest_ingest_post": {
+        "properties": {
+          "doc_type": {
+            "enum": [
+              "lab_pdf",
+              "intake_form"
+            ],
+            "title": "Doc Type",
+            "type": "string"
+          },
+          "file": {
+            "contentMediaType": "application/octet-stream",
+            "title": "File",
+            "type": "string"
+          },
+          "patient_id": {
+            "title": "Patient Id",
+            "type": "string"
+          },
+          "patient_uuid": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Patient Uuid"
+          }
+        },
+        "required": [
+          "patient_id",
+          "doc_type",
+          "file"
+        ],
+        "title": "Body_ingest_ingest_post",
+        "type": "object"
+      },
+      "ChatRequest": {
+        "properties": {
+          "conversation_history": {
+            "default": [],
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Conversation History",
+            "type": "array"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "patient_id": {
+            "title": "Patient Id",
+            "type": "string"
+          },
+          "patient_pid": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Patient Pid"
+          },
+          "pending_document": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PendingDocumentInput"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "patient_id",
+          "message"
+        ],
+        "title": "ChatRequest",
+        "type": "object"
+      },
+      "ChatResponse": {
+        "properties": {
+          "conversation_history": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Conversation History",
+            "type": "array"
+          },
+          "correlation_id": {
+            "title": "Correlation Id",
+            "type": "string"
+          },
+          "handoff_log": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Handoff Log",
+            "type": "array"
+          },
+          "strip_rate": {
+            "title": "Strip Rate",
+            "type": "number"
+          },
+          "stripped_claims": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Stripped Claims",
+            "type": "array"
+          },
+          "tool_failures": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Tool Failures",
+            "type": "array"
+          },
+          "verified_claims": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Verified Claims",
+            "type": "array"
+          }
+        },
+        "required": [
+          "verified_claims",
+          "stripped_claims",
+          "tool_failures",
+          "strip_rate",
+          "conversation_history",
+          "handoff_log",
+          "correlation_id"
+        ],
+        "title": "ChatResponse",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "PendingDocumentInput": {
+        "description": "A document attached to this chat turn for the intake-extractor worker to process inline\n(W2_ARCHITECTURE.md Section 3), as opposed to the standalone /ingest upload flow -- use this\nwhen the extraction needs to inform the *same* turn's answer (e.g. \"summarize this lab and\ncompare to guideline targets\" in one message).",
+        "properties": {
+          "data_base64": {
+            "title": "Data Base64",
+            "type": "string"
+          },
+          "doc_type": {
+            "enum": [
+              "lab_pdf",
+              "intake_form"
+            ],
+            "title": "Doc Type",
+            "type": "string"
+          },
+          "filename": {
+            "title": "Filename",
+            "type": "string"
+          },
+          "mimetype": {
+            "default": "application/pdf",
+            "title": "Mimetype",
+            "type": "string"
+          }
+        },
+        "required": [
+          "data_base64",
+          "filename",
+          "doc_type"
+        ],
+        "title": "PendingDocumentInput",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "title": "Clinical Co-Pilot Agent",
+    "version": "0.1.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/chat": {
+      "post": {
+        "operationId": "chat_chat_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChatRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Chat"
+      }
+    },
+    "/health": {
+      "get": {
+        "operationId": "health_health_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Health"
+      }
+    },
+    "/ingest": {
+      "post": {
+        "description": "The intake-extractor worker's HTTP entry point (W2_ARCHITECTURE.md Section 2). Called by\ninterface/modules/copilot/upload.php, same auth-bridge pattern as /chat.\n\n`patient_uuid` is only required for doc_type=intake_form -- see ingestion.persist_intake_facts\nfor why the allergy endpoint needs the FHIR uuid while everything else here uses the int pid.",
+        "operationId": "ingest_ingest_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_ingest_ingest_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Ingest"
+      }
+    },
+    "/ready": {
+      "get": {
+        "description": "W2_ARCHITECTURE.md Section 9: degrades gracefully rather than reporting a binary down --\nthe core FHIR chat flow (Week 1) can keep working even if document storage, the vector index,\nor Voyage are unavailable (only ingestion/evidence-retrieval would be affected), so those three\nare reported as \"degraded\" dependencies, not folded into an all-or-nothing health check.",
+        "operationId": "ready_ready_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Ready"
+      }
+    }
+  }
+}

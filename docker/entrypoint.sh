@@ -133,6 +133,17 @@ else
     echo "Additional sample patients already present, skipping seed."
 fi
 
+# Week 2 document-ingestion categories (LabPDF, IntakeForm) -- see docs/seed-w2-document-categories.sql
+# for why these are single-word (a pre-existing OpenEMR bug makes category names with a space,
+# like the built-in "Lab Report", unreliable to look up after upload).
+LABPDF_CATEGORY_COUNT=$("${MYSQL_CLI[@]}" -N "$MYSQLDATABASE" -e "SELECT COUNT(*) FROM categories WHERE name='LabPDF'" 2>/dev/null || echo 0)
+if [[ "$LABPDF_CATEGORY_COUNT" -eq 0 ]]; then
+    echo "Seeding Week 2 document-ingestion categories (LabPDF, IntakeForm)..."
+    "${MYSQL_CLI[@]}" "$MYSQLDATABASE" < /var/www/html/docs/seed-w2-document-categories.sql
+else
+    echo "Week 2 document-ingestion categories already present, skipping seed."
+fi
+
 # Clinical Co-Pilot needs the REST/FHIR API and a correct OAuth2 site address enabled -- idempotent,
 # re-asserted every boot in case a full reinstall (see NEEDS_INSTALL above) reset globals to defaults.
 "${MYSQL_CLI[@]}" "$MYSQLDATABASE" -e "
@@ -166,7 +177,13 @@ const COPILOT_AGENT_BASE_URL = '${COPILOT_AGENT_BASE_URL}';
 
 const COPILOT_SCOPE = 'openid offline_access api:oemr api:fhir user/Patient.read user/Encounter.read '
     . 'user/Condition.read user/MedicationRequest.read user/AllergyIntolerance.read user/Observation.read '
-    . 'user/DocumentReference.read';
+    . 'user/DocumentReference.read '
+    // Week 2 document ingestion (W2_ARCHITECTURE.md Section 2): standard-API routes require these
+    // explicit CRUDS-style scopes separately from the FHIR read scopes above -- must stay in sync
+    // with interface/modules/copilot/config.php.example's COPILOT_SCOPE (this heredoc is what
+    // actually generates the deployed config.php; the .example file is dev-only documentation).
+    . 'user/document.crs user/medication.cruds user/allergy.cruds user/procedure_result_from_document.c '
+    . 'user/document_lookup.rs';
 PHP
     chown www-data:www-data "$COPILOT_DIR/config.php"
     # Idempotent: harmless no-op if this client doesn't exist (e.g. a full reinstall wiped

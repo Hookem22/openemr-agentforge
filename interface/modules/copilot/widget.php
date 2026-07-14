@@ -28,6 +28,14 @@ $copilotIsAuthorized = !empty($session->get('copilot_access_token'));
     <div id="copilot-panel" style="display:none; position:fixed; bottom:70px; right:20px; width:360px; max-height:70vh; z-index:1050; background:#fff; border:1px solid #ccc; border-radius:8px; box-shadow:0 2px 10px rgba(0,0,0,.2); display:flex; flex-direction:column;">
         <div style="padding:8px 12px; border-bottom:1px solid #eee; font-weight:bold;">Clinical Co-Pilot</div>
         <div id="copilot-messages" style="flex:1; overflow-y:auto; padding:8px 12px; font-size:13px;"></div>
+        <div id="copilot-upload-row" style="display:flex; gap:6px; padding:6px 12px; border-top:1px solid #eee;">
+            <select id="copilot-doc-type" style="font-size:12px;">
+                <option value="lab_pdf">Lab PDF</option>
+                <option value="intake_form">Intake form</option>
+            </select>
+            <input id="copilot-file-input" type="file" accept=".pdf,image/*" style="display:none;" />
+            <button id="copilot-upload-btn" type="button" class="btn btn-sm btn-outline-secondary">Upload document</button>
+        </div>
         <form id="copilot-form" style="display:flex; border-top:1px solid #eee; padding:6px;">
             <input id="copilot-input" type="text" placeholder="Ask about this patient..." style="flex:1; border:none; outline:none; font-size:13px;" autocomplete="off" />
             <button type="submit" class="btn btn-sm btn-primary">Send</button>
@@ -40,6 +48,7 @@ $copilotIsAuthorized = !empty($session->get('copilot_access_token'));
     let csrfToken = <?php echo js_escape($copilotCsrfToken); ?>;
     let isAuthorized = <?php echo $copilotIsAuthorized ? 'true' : 'false'; ?>;
     const proxyUrl = <?php echo js_escape($GLOBALS['web_root'] ?? ''); ?> + '/interface/modules/copilot/proxy.php';
+    const uploadUrl = <?php echo js_escape($GLOBALS['web_root'] ?? ''); ?> + '/interface/modules/copilot/upload.php';
     const startUrl = <?php echo js_escape($GLOBALS['web_root'] ?? ''); ?> + '/interface/modules/copilot/start.php';
     const QUICK_START_MESSAGE = "Tell me about this patient before today's visit";
 
@@ -53,6 +62,9 @@ $copilotIsAuthorized = !empty($session->get('copilot_access_token'));
     const form = document.getElementById('copilot-form');
     const input = document.getElementById('copilot-input');
     const sendBtn = form.querySelector('button[type="submit"]');
+    const docTypeSelect = document.getElementById('copilot-doc-type');
+    const fileInput = document.getElementById('copilot-file-input');
+    const uploadBtn = document.getElementById('copilot-upload-btn');
 
     toggleBtn.addEventListener('click', function () {
         panel.style.display = (panel.style.display === 'none') ? 'flex' : 'none';
@@ -242,6 +254,99 @@ $copilotIsAuthorized = !empty($session->get('copilot_access_token'));
         }
         input.value = '';
         submitMessage(message);
+    });
+
+    function renderIngestResult(docType, result) {
+        const extraction = result.extraction || {};
+        if (docType === 'lab_pdf') {
+            const results = extraction.results || [];
+            addLine('Extracted ' + results.length + ' lab result(s) from the document.', 'answer');
+            results.forEach(function (r) {
+                const flag = r.abnormal_flag ? ' [ABNORMAL]' : '';
+                const conf = r.confidence !== undefined ? ' (confidence ' + Math.round(r.confidence * 100) + '%)' : '';
+                addLine('• ' + r.test_name + ': ' + r.value + ' ' + (r.unit || '') + flag + conf, 'answer');
+            });
+        } else {
+            const meds = extraction.current_medications || [];
+            const allergies = extraction.allergies || [];
+            const familyHistory = extraction.family_history || [];
+            addLine('Extracted ' + meds.length + ' medication(s), ' + allergies.length + ' allerg(y/ies), ' + familyHistory.length + ' family history entr(y/ies).', 'answer');
+            if (extraction.chief_concern && extraction.chief_concern.text) {
+                addLine('Chief concern: ' + extraction.chief_concern.text, 'answer');
+            }
+        }
+        if (result.was_deduped) {
+            addLine('(This exact document was already processed before -- no new records created.)', 'warn');
+        }
+    }
+
+    function uploadDocument(file, docType, allowRetry) {
+        if (allowRetry === undefined) {
+            allowRetry = true;
+        }
+        const formData = new FormData();
+        formData.append('pid', pid);
+        formData.append('doc_type', docType);
+        formData.append('csrf_token', csrfToken);
+        formData.append('file', file);
+
+        return fetch(uploadUrl, { method: 'POST', body: formData }).then(function (resp) {
+            if (resp.status === 401) {
+                return resp.json().then(function () {
+                    const err = new Error('reauth_required');
+                    err.reauthRequired = true;
+                    throw err;
+                });
+            }
+            if (resp.status === 403) {
+                return resp.json().then(function (body) {
+                    if (body.error === 'invalid_csrf' && body.csrf_token && allowRetry) {
+                        csrfToken = body.csrf_token;
+                        return uploadDocument(file, docType, false);
+                    }
+                    throw new Error(body.error || ('HTTP ' + resp.status));
+                });
+            }
+            if (!resp.ok) {
+                return resp.json().then(function (body) {
+                    throw new Error(body.detail || body.error || ('HTTP ' + resp.status));
+                });
+            }
+            return resp.json();
+        });
+    }
+
+    uploadBtn.addEventListener('click', function () {
+        fileInput.click();
+    });
+
+    function submitUpload(file, docType) {
+        removeQuickStartPrompt();
+        addLine('Uploading ' + file.name + ' (' + docType + ')...', 'user');
+        showLoading();
+        uploadDocument(file, docType).then(function (result) {
+            hideLoading();
+            fileInput.value = '';
+            renderIngestResult(docType, result);
+        }).catch(function (err) {
+            hideLoading();
+            if (err.reauthRequired) {
+                addAuthorizePrompt(function () {
+                    submitUpload(file, docType);
+                });
+                return;
+            }
+            fileInput.value = '';
+            addLine('Upload error: ' + err.message, 'warn');
+        });
+    }
+
+    fileInput.addEventListener('change', function () {
+        const file = fileInput.files[0];
+        if (!file) {
+            return;
+        }
+        submitUpload(file, docTypeSelect.value);
     });
 
     // First-open state: prompt for authorization immediately if this session doesn't already have a

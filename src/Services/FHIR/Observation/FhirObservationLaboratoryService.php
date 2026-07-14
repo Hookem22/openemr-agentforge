@@ -18,6 +18,7 @@ use OpenEMR\FHIR\R4\FHIRDomainResource\FHIRProvenance;
 use OpenEMR\FHIR\R4\FHIRElement\FHIRCodeableConcept;
 use OpenEMR\FHIR\R4\FHIRElement\FHIRId;
 use OpenEMR\FHIR\R4\FHIRElement\FHIRMeta;
+use OpenEMR\FHIR\R4\FHIRElement\FHIRString;
 use OpenEMR\FHIR\R4\FHIRResource\FHIRObservation\FHIRObservationReferenceRange;
 use OpenEMR\Services\FHIR\FhirCodeSystemConstants;
 use OpenEMR\Services\FHIR\FhirProvenanceService;
@@ -256,6 +257,16 @@ class FhirObservationLaboratoryService extends FhirServiceBase implements IPatie
                     'description' => $dataRecord['text']
                 ]
             ]));
+        } elseif (!empty($dataRecord['text'])) {
+            // A human-readable test name with no LOINC code (e.g. Week 2's Claude-vision-extracted
+            // lab results, which read a plain-text test name off a scanned document rather than
+            // looking up a coded identifier) is still valid, useful data -- FHIR's CodeableConcept
+            // explicitly allows `text` with no `coding` at all. Falling all the way through to
+            // NullFlavorUnknown here silently discarded a real, human-entered test name merely for
+            // lacking a machine code, which is a worse outcome than an uncoded-but-labeled result.
+            $textOnlyCode = new FHIRCodeableConcept();
+            $textOnlyCode->setText(new FHIRString($dataRecord['text']));
+            $observation->setCode($textOnlyCode);
         } else {
             $observation->setCode(UtilsService::createNullFlavorUnknownCodeableConcept());
         }

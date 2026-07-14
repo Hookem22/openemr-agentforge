@@ -163,7 +163,7 @@ existing redaction contract — no new PHI surface is introduced by adding nodes
 - **Indexing** (`agent/app/rag.py`): paragraph/section chunking; dense vectors via Voyage AI
   (`voyage-3-lite`); sparse via `rank_bm25`. At this corpus scale (dozens of chunks), a flat in-memory vector
   array persisted to a local file is sufficient — no new infra/container.
-- **Retrieval**: reciprocal-rank-fusion of BM25 top-k and dense top-k → Voyage rerank (`voyage-rerank-2`) on
+- **Retrieval**: reciprocal-rank-fusion of BM25 top-k and dense top-k → Voyage rerank (`rerank-2`) on
   the fused set → top-N chunks returned with citations shaped `{source_type: "guideline", source_id,
   page_or_section, field_or_chunk_id: chunk_id, quote_or_value: snippet}`.
 - **Why Voyage for both embeddings and rerank, not Cohere**: one vendor/API key instead of two, consistent

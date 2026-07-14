@@ -89,6 +89,9 @@ def test_verify_node_appends_tool_result_for_provide_answer():
         "tool_failures": [],
         "verified_claims": [],
         "stripped_claims": [],
+        "extracted_facts": [],
+        "evidence_snippets": [],
+        "evidence_empty": False,
     }
 
     result = verify_node(state)

@@ -507,6 +507,12 @@ return [
 
         return $return;
     },
+    "GET /api/patient/:pid/document_lookup" => function ($pid, HttpRestRequest $request) {
+        RestConfig::request_authorization_check($request, "patients", "docs");
+        $return = (new DocumentRestController())->lookupByFilename($pid, $request->query->get('path'), $request->query->get('filename'));
+
+        return $return;
+    },
     "GET /api/patient/:pid/document/:did" => function ($pid, $did, HttpRestRequest $request) {
         RestConfig::request_authorization_check($request, "patients", "docs");
         $return = (new DocumentRestController())->downloadFile($pid, $did);
@@ -646,6 +652,18 @@ return [
     "GET /api/procedure/:uuid" => function ($uuid, HttpRestRequest $request) {
         RestConfig::request_authorization_check($request, "patients", "med");
         $return = (new ProcedureRestController())->getOne($uuid);
+
+        return $return;
+    },
+    "POST /api/patient/:pid/procedure_result_from_document" => function ($pid, HttpRestRequest $request) {
+        RestConfig::request_authorization_check($request, "patients", "med");
+        // Note: json_decode(..., true) (WITH the associative-array flag), unlike the sibling
+        // medication/allergy routes above -- this endpoint's body has a nested `results` array of
+        // objects, and `(array) json_decode($x)` (no `true`) only casts the top level, leaving
+        // each nested result as an stdClass instead of an array (the same object/array ambiguity
+        // documented in agent/app/graph.py's _repair_round_tripped_tool_use_input).
+        $data = json_decode(file_get_contents("php://input"), true) ?? [];
+        $return = (new ProcedureRestController())->postResultsFromDocument($pid, $data);
 
         return $return;
     },

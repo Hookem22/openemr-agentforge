@@ -1,0 +1,93 @@
+"""Tier 1 of the two-tier testing strategy (W2_ARCHITECTURE.md Section 6): the Voyage AI client is
+stubbed out, so this file always runs -- no live API, no cost -- and guards `rag.retrieve()`'s
+orchestration wiring (BM25 -> dense -> reciprocal-rank-fusion -> rerank, in that order, over the
+real checked-in corpus) independent of whether Voyage's real embeddings/rerank would score things
+well. Real retrieval *quality* is the golden set's job (test_golden_set.py's evidence_retrieval
+category); this file's job is "does the pipeline call the right stages in the right order with the
+right data," which a live test can't isolate from embedding/rerank quality.
+"""
+from __future__ import annotations
+
+from types import SimpleNamespace
+
+import pytest
+
+from app import rag as rag_module
+
+
+class _FakeVoyageClient:
+    """Deterministic stand-in for voyageai.Client: embeddings are a fixed-length vector keyed only
+    on text length (so distinct texts get distinct-but-reproducible vectors), and rerank just
+    reverses whatever order it's given -- enough to prove retrieve() actually threads results
+    through every stage, without depending on real embedding/rerank quality."""
+
+    def embed(self, texts, model, input_type):
+        return SimpleNamespace(embeddings=[[float(len(t) % 7), float(len(t) % 5)] for t in texts])
+
+    def rerank(self, query, documents, model, top_k):
+        order = list(reversed(range(len(documents))))[:top_k]
+        results = [SimpleNamespace(index=i, relevance_score=0.9 - 0.01 * rank) for rank, i in enumerate(order)]
+        return SimpleNamespace(results=results)
+
+
+@pytest.fixture(autouse=True)
+def _reset_index_and_stub_voyage(monkeypatch):
+    monkeypatch.setattr(rag_module, "_voyage_client", lambda: _FakeVoyageClient())
+    rag_module.reset_index()
+    yield
+    rag_module.reset_index()
+
+
+def test_retrieve_returns_citation_shaped_guideline_chunks():
+    results = rag_module.retrieve("diabetes glycemic targets", top_k=3)
+
+    assert results, "expected at least one chunk from the real checked-in corpus"
+    for r in results:
+        assert r.citation.source_type == "guideline"
+        assert r.citation.source_id  # a real corpus slug, e.g. "ada_diabetes_standards"
+        assert r.citation.field_or_chunk_id == r.chunk_id
+
+
+def test_retrieve_respects_top_k():
+    results = rag_module.retrieve("hypertension treatment", top_k=2)
+
+    assert len(results) <= 2
+
+
+def test_retrieve_filters_by_min_relevance_score(monkeypatch):
+    """Wiring check for the Stage 2 threshold fix: a stubbed rerank score below
+    MIN_RELEVANCE_SCORE must be excluded from the returned results, proving the filter in
+    retrieve() actually runs on whatever the rerank call returns (not just on real Voyage scores)."""
+
+    class _LowScoreClient(_FakeVoyageClient):
+        def rerank(self, query, documents, model, top_k):
+            return SimpleNamespace(results=[SimpleNamespace(index=0, relevance_score=0.1)])
+
+    monkeypatch.setattr(rag_module, "_voyage_client", lambda: _LowScoreClient())
+    rag_module.reset_index()
+
+    results = rag_module.retrieve("anything", top_k=5)
+
+    assert results == []
+
+
+def test_embeddings_are_cached_across_calls(monkeypatch, tmp_path):
+    """Wiring check: a second retrieve() call must not re-embed the corpus -- the disk cache
+    (keyed on corpus content hash) should short-circuit _load_or_build_embeddings."""
+    embed_call_count = {"n": 0}
+
+    class _CountingClient(_FakeVoyageClient):
+        def embed(self, texts, model, input_type):
+            if input_type == "document":
+                embed_call_count["n"] += 1
+            return super().embed(texts, model, input_type)
+
+    monkeypatch.setattr(rag_module, "_voyage_client", lambda: _CountingClient())
+    monkeypatch.setattr(rag_module, "INDEX_CACHE_PATH", str(tmp_path / "cache.json"))
+    rag_module.reset_index()
+
+    rag_module.retrieve("first query", top_k=1)
+    rag_module.reset_index()  # force a rebuild -- exercises the disk cache, not just the in-memory singleton
+    rag_module.retrieve("second query", top_k=1)
+
+    assert embed_call_count["n"] == 1, "corpus embeddings should only be built once (disk-cached after that), not once per process rebuild"

@@ -6,6 +6,9 @@ node_modules/
 agent/.env
 agent/venv/
 agent/**/__pycache__/
+# Rebuildable Voyage embedding cache for the Week 2 guideline corpus (agent/app/rag.py) -- derived
+# from agent/data/guidelines/*.md, regenerated automatically on first run after a corpus change.
+agent/data/guidelines_index_cache.json
 interface/modules/copilot/config.php
 
 # Local Claude Code settings (personal, machine-specific)
@@ -15,3 +18,9 @@ interface/modules/copilot/config.php
 # these would let anyone with repo access decrypt stored secrets (e.g. oauth_clients.client_secret)
 sites/default/documents/certificates/
 sites/default/documents/logs_and_misc/methods/
+
+# Uploaded patient documents (OpenEMR stores these under sites/default/documents/<pid>/) -- runtime
+# instance data from local Week 2 ingestion testing, not source code; never commit patient files
+# even when synthetic, matching the same "instance-specific, gitignored" treatment as the two
+# directories above.
+sites/default/documents/[0-9]*/

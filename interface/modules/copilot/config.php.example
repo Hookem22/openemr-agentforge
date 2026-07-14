@@ -29,4 +29,9 @@ const COPILOT_AGENT_BASE_URL = 'http://localhost:8000';
 
 const COPILOT_SCOPE = 'openid offline_access api:oemr api:fhir user/Patient.read user/Encounter.read '
     . 'user/Condition.read user/MedicationRequest.read user/AllergyIntolerance.read user/Observation.read '
-    . 'user/DocumentReference.read';
+    . 'user/DocumentReference.read '
+    // Week 2 document ingestion (W2_ARCHITECTURE.md Section 2): standard-API routes require these
+    // explicit CRUDS-style scopes separately from the FHIR read scopes above -- discovered while
+    // building/testing the ingestion flow (see Gauntlet/Week 2/STATUS.md).
+    . 'user/document.crs user/medication.cruds user/allergy.cruds user/procedure_result_from_document.c '
+    . 'user/document_lookup.rs';

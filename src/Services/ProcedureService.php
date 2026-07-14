@@ -64,6 +64,123 @@ class ProcedureService extends BaseService
     }
 
     /**
+     * Inserts a chained procedure_order -> procedure_order_code -> procedure_report ->
+     * procedure_result record set for lab facts extracted from an uploaded document (Week 2
+     * intake-extractor worker). Every result row's `document_id` links back to the source
+     * document (W2_ARCHITECTURE.md Section 2.1) -- this is what makes the extracted labs show up
+     * as real FHIR Observations via the existing, unmodified FhirObservationLaboratoryService read
+     * path, without OpenEMR ever needing a FHIR Observation write path (which doesn't exist).
+     *
+     * Dedup: `procedure_order.external_id` is set to a deterministic hash of the document id plus
+     * every result's test name + collection date, so re-processing the same document a second time
+     * (e.g. a retried upload) is a no-op (returns the existing order) rather than a duplicate.
+     *
+     * @param int   $patientId   patient_data.pid
+     * @param int   $documentId  documents.id of the already-uploaded source document
+     * @param array $results     each: ['test_name' => string, 'value' => string, 'unit' => ?string,
+     *                           'reference_range' => ?string, 'collection_date' => ?string (Y-m-d H:i:s),
+     *                           'abnormal_flag' => ?bool, 'result_code' => ?string (LOINC)]
+     * @param int   $encounterId optional form_encounter.encounter -- 0 if not tied to a visit
+     * @param int   $providerId  optional users.id of the ordering/reviewing provider -- 0 if unknown
+     * @return array{skipped: bool, procedure_order_id: int|null, procedure_order_uuid: string|null, result_ids: int[]}
+     */
+    public function insertResultsFromDocument(
+        int $patientId,
+        int $documentId,
+        array $results,
+        int $encounterId = 0,
+        int $providerId = 0
+    ): array {
+        if (empty($results)) {
+            return ['skipped' => true, 'procedure_order_id' => null, 'procedure_order_uuid' => null, 'result_ids' => []];
+        }
+
+        $dedupSeed = $documentId . '|' . implode('|', array_map(
+            fn($r) => ($r['test_name'] ?? '') . ':' . ($r['collection_date'] ?? ''),
+            $results
+        ));
+        $externalId = substr(hash('sha256', $dedupSeed), 0, 20); // external_id column is varchar(20)
+
+        $existingStatement = QueryUtils::sqlStatementThrowException(
+            "SELECT procedure_order_id, uuid FROM procedure_order WHERE patient_id = ? AND external_id = ? AND activity = 1",
+            [$patientId, $externalId]
+        );
+        $existingRow = sqlFetchArray($existingStatement);
+        if (!empty($existingRow)) {
+            return [
+                'skipped' => true,
+                'procedure_order_id' => (int) $existingRow['procedure_order_id'],
+                'procedure_order_uuid' => UuidRegistry::uuidToString($existingRow['uuid']),
+                'result_ids' => [],
+            ];
+        }
+
+        return QueryUtils::inTransaction(function () use ($patientId, $documentId, $results, $encounterId, $providerId, $externalId) {
+            $orderUuid = (new UuidRegistry(['table_name' => self::PROCEDURE_TABLE]))->createUuid();
+            $orderId = QueryUtils::sqlInsert(
+                "INSERT INTO procedure_order
+                    (uuid, provider_id, patient_id, encounter_id, date_collected, date_ordered,
+                     order_status, procedure_order_type, external_id)
+                 VALUES (?, ?, ?, ?, NOW(), NOW(), 'complete', 'laboratory_test', ?)",
+                [$orderUuid, $providerId, $patientId, $encounterId, $externalId]
+            );
+
+            $resultIds = [];
+            foreach (array_values($results) as $i => $result) {
+                $seq = $i + 1;
+                $testName = (string) ($result['test_name'] ?? '');
+                $resultCode = (string) ($result['result_code'] ?? '');
+                $collectionDate = $result['collection_date'] ?? null;
+
+                QueryUtils::sqlInsert(
+                    "INSERT INTO procedure_order_code
+                        (procedure_order_id, procedure_order_seq, procedure_code, procedure_name, procedure_source)
+                     VALUES (?, ?, ?, ?, '1')",
+                    [$orderId, $seq, $resultCode, $testName]
+                );
+
+                $reportUuid = (new UuidRegistry(['table_name' => self::PROCEDURE_REPORT_TABLE]))->createUuid();
+                $reportId = QueryUtils::sqlInsert(
+                    "INSERT INTO procedure_report
+                        (uuid, procedure_order_id, procedure_order_seq, date_collected, date_report,
+                         report_status, review_status)
+                     VALUES (?, ?, ?, ?, NOW(), 'complete', 'reviewed')",
+                    [$reportUuid, $orderId, $seq, $collectionDate]
+                );
+
+                $abnormal = ($result['abnormal_flag'] ?? null) === true ? 'yes' : 'no';
+                $resultUuid = (new UuidRegistry(['table_name' => self::PROCEDURE_RESULT_TABLE]))->createUuid();
+                $resultId = QueryUtils::sqlInsert(
+                    "INSERT INTO procedure_result
+                        (uuid, procedure_report_id, result_data_type, result_code, result_text, `date`,
+                         units, result, `range`, abnormal, document_id, result_status)
+                     VALUES (?, ?, 'S', ?, ?, ?, ?, ?, ?, ?, ?, 'final')",
+                    [
+                        $resultUuid,
+                        $reportId,
+                        $resultCode,
+                        $testName,
+                        $collectionDate,
+                        (string) ($result['unit'] ?? ''),
+                        (string) ($result['value'] ?? ''),
+                        (string) ($result['reference_range'] ?? ''),
+                        $abnormal,
+                        $documentId,
+                    ]
+                );
+                $resultIds[] = $resultId;
+            }
+
+            return [
+                'skipped' => false,
+                'procedure_order_id' => $orderId,
+                'procedure_order_uuid' => UuidRegistry::uuidToString($orderUuid),
+                'result_ids' => $resultIds,
+            ];
+        });
+    }
+
+    /**
      * Returns a list of procedures matching optional search criteria.
      * Search criteria is conveyed by array where key = field/column name, value = field value.
      * If no search criteria is provided, all records are returned.

@@ -72,6 +72,25 @@ class DocumentRestController
     }
 
     /**
+     * Week 2 (W2_ARCHITECTURE.md Section 2): resolves the id of a just-uploaded document by
+     * (pid, category, filename), via a direct query rather than DocumentService::getAllAtPath() --
+     * see Gauntlet/Week 2/STATUS.md for the environment-specific issue this works around.
+     */
+    public function lookupByFilename($pid, $path, $filename)
+    {
+        $categoryName = strtolower(str_replace(' ', '', (string) $path));
+        $sql = "SELECT doc.id, doc.hash
+                FROM documents doc
+                JOIN categories_to_documents ctd ON ctd.document_id = doc.id
+                JOIN categories cat ON cat.id = ctd.category_id
+                WHERE doc.foreign_id = ? AND doc.name = ? AND doc.deleted = 0
+                  AND REPLACE(LOWER(cat.name), ' ', '') = ?
+                ORDER BY doc.id DESC LIMIT 1";
+        $row = \sqlQuery($sql, [$pid, $filename, $categoryName]);
+        return RestControllerHelper::responseHandler($row ?: null, null, empty($row) ? 404 : 200);
+    }
+
+    /**
      * Submits a new patient document.
      */
     #[OA\Post(

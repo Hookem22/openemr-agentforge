@@ -104,3 +104,79 @@ def test_resource_type_mismatch_with_matching_id_is_stripped():
 
     assert result.verified_claims == []
     assert len(result.stripped_claims) == 1
+
+
+# --- W2_ARCHITECTURE.md Section 5 migration: unified (document/guideline) citation shape ---
+
+
+def test_document_sourced_claim_matching_an_extracted_fact_is_verified():
+    """Stage 3 happy path: a claim citing a fact the intake-extractor worker actually produced this
+    turn (source_type='document') is verified the same way an FHIR claim is."""
+    extracted_facts = [{"text": "A1c: 8.2%", "citation": {"source_type": "document", "source_id": "doc-1", "field_or_chunk_id": "results[0]"}}]
+    claims = [{"text": "The patient's A1c is 8.2%.", "source": {"source_type": "document", "source_id": "doc-1", "field_or_chunk_id": "results[0]"}}]
+
+    result = verify_claims(claims, [], extracted_facts=extracted_facts)
+
+    assert result.verified_claims == claims
+    assert result.stripped_claims == []
+
+
+def test_guideline_sourced_claim_matching_an_evidence_snippet_is_verified():
+    """Same happy path for the evidence-retriever worker's output (source_type='guideline')."""
+    evidence_snippets = [{"text": "Target A1c below 7%.", "citation": {"source_type": "guideline", "source_id": "ada_diabetes_standards", "field_or_chunk_id": "ada#glycemic-targets"}}]
+    claims = [{"text": "Guideline target A1c is below 7%.", "source": {"source_type": "guideline", "source_id": "ada_diabetes_standards", "field_or_chunk_id": "ada#glycemic-targets"}}]
+
+    result = verify_claims(claims, [], evidence_snippets=evidence_snippets)
+
+    assert result.verified_claims == claims
+    assert result.stripped_claims == []
+
+
+def test_document_sourced_claim_with_hallucinated_field_id_is_stripped():
+    """Failure mode guarded: the model cites a real document but a field/chunk id that was never
+    actually extracted this turn -- must not verify just because source_id matches."""
+    extracted_facts = [{"text": "A1c: 8.2%", "citation": {"source_type": "document", "source_id": "doc-1", "field_or_chunk_id": "results[0]"}}]
+    claims = [{"text": "The patient's LDL is 190.", "source": {"source_type": "document", "source_id": "doc-1", "field_or_chunk_id": "results[99]"}}]
+
+    result = verify_claims(claims, [], extracted_facts=extracted_facts)
+
+    assert result.verified_claims == []
+    assert len(result.stripped_claims) == 1
+    assert "does not match any extracted fact or evidence snippet" in result.stripped_claims[0]["reason"]
+
+
+def test_no_guideline_evidence_found_is_a_verifiable_no_data_claim():
+    """W2_ARCHITECTURE.md Section 10: when evidence_retriever finds zero chunks, the model must be
+    able to make a verified 'no guideline evidence found' claim rather than fabricating guidance or
+    the claim being stripped for lacking a resource citation."""
+    claims = [{"text": "No guideline evidence found for this query.", "source": {"type": "no_data", "resource_type": "guideline"}}]
+
+    result = verify_claims(claims, [], empty_evidence=True)
+
+    assert result.verified_claims == claims
+    assert result.stripped_claims == []
+
+
+def test_no_data_guideline_claim_without_empty_evidence_flag_is_stripped():
+    """Failure mode guarded: the model claims 'no evidence found' without evidence_retriever having
+    actually run and confirmed an empty result this turn -- same fail-closed pattern as any other
+    no_data claim."""
+    claims = [{"text": "No guideline evidence found.", "source": {"type": "no_data", "resource_type": "guideline"}}]
+
+    result = verify_claims(claims, [], empty_evidence=False)
+
+    assert result.verified_claims == []
+    assert len(result.stripped_claims) == 1
+
+
+def test_fhir_verification_path_is_unaffected_by_new_optional_arguments():
+    """Backward-compatibility check for the Section 5 migration note: existing FHIR-citation
+    behavior must be byte-for-byte identical whether or not the new extracted_facts/
+    evidence_snippets arguments are passed."""
+    tool_results = [{"resource_type": "Condition", "id": "cond-1"}]
+    claims = [{"text": "Patient has diabetes.", "source": {"resource_type": "Condition", "resource_id": "cond-1"}}]
+
+    with_new_args = verify_claims(claims, tool_results, extracted_facts=[], evidence_snippets=[], empty_evidence=False)
+    without_new_args = verify_claims(claims, tool_results)
+
+    assert with_new_args.verified_claims == without_new_args.verified_claims == claims

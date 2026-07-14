@@ -8,7 +8,11 @@ carries `resource_type` + `id` + `date` -- these three fields are exactly what t
 """
 from __future__ import annotations
 
+import re
+
 from .fhir_client import FhirClient
+
+_DATA_ABSENT_REASON_SYSTEM = "http://terminology.hl7.org/CodeSystem/data-absent-reason"
 
 
 def _text(codeable_concept: dict | None) -> str | None:
@@ -17,9 +21,23 @@ def _text(codeable_concept: dict | None) -> str | None:
     if codeable_concept.get("text"):
         return codeable_concept["text"]
     codings = codeable_concept.get("coding") or []
-    if codings:
+    if codings and codings[0].get("system") != _DATA_ABSENT_REASON_SYSTEM:
         return codings[0].get("display") or codings[0].get("code")
     return None
+
+
+def _narrative_text(resource: dict) -> str | None:
+    """Falls back to the FHIR Narrative (resource.text.div) when a codeableConcept has no real
+    coding -- only a data-absent-reason placeholder. Found via the Stage 4 golden set:
+    FhirAllergyIntoleranceService.php never maps OpenEMR's free-text allergy title into
+    `code.coding` (no RxNorm/SNOMED code exists for e.g. "No Known Drug Allergies (NKDA) - verified
+    at visit"), so `code` is *always* just {system: data-absent-reason, display: "Unknown"} --
+    for every allergy on every patient, not only NKDA-style entries. The real text OpenEMR puts in
+    is the resource's own generated narrative, so that's the fallback source of truth here."""
+    div = (resource.get("text") or {}).get("div")
+    if not div:
+        return None
+    return re.sub(r"<[^>]+>", "", div).strip() or None
 
 
 def get_patient(fhir: FhirClient, patient_id: str) -> dict:
@@ -116,7 +134,7 @@ def get_allergies(fhir: FhirClient, patient_id: str) -> list[dict]:
                 "resource_type": "AllergyIntolerance",
                 "id": a.get("id"),
                 "date": a.get("recordedDate"),
-                "allergen": _text(a.get("code")),
+                "allergen": _text(a.get("code")) or _narrative_text(a),
                 "criticality": a.get("criticality"),
                 "reaction": reaction,
             }

@@ -285,6 +285,14 @@ class ServerScopeListEntity
                 ,'practitioner' => ['c','r','u','s']
                 ,'prescription' => ['c','r','d','s']
                 ,'procedure' => ['r','s']
+                // Week 2: intake-extractor worker's lab-result write path (W2_ARCHITECTURE.md
+                // Section 2.1) -- create-only, matching the narrow single-purpose endpoint it
+                // guards (POST /api/patient/{pid}/procedure_result_from_document).
+                ,'procedure_result_from_document' => ['c']
+                // Week 2: resolves an uploaded document's id by filename, working around an
+                // environment-specific issue with the existing document-list route (see
+                // Gauntlet/Week 2/STATUS.md).
+                ,'document_lookup' => ['r', 's']
                 ,'product' => ['s']
                 ,'soap_note' => ['c','r','u','s']
                 ,'surgery' => ['c','r','u','d','s']

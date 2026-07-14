@@ -1,0 +1,35 @@
+meta {
+  name: Chat
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{base_url}}/chat
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{bearer_token}}
+}
+
+body:json {
+  {
+    "patient_id": "{{patient_id}}",
+    "message": "What conditions and medications does this patient have?",
+    "conversation_history": []
+  }
+}
+
+docs {
+  Runs one full chat turn through the LangGraph pipeline (supervisor -> agent/execute_tools/verify).
+  `patient_id` is the FHIR patient uuid (not the OpenEMR int pid). `conversation_history` should be
+  the exact `conversation_history` array from the previous turn's response, to continue a
+  conversation. Response includes `verified_claims`, `stripped_claims`, `handoff_log`, and
+  `correlation_id` (W2_ARCHITECTURE.md Section 8) for tracing this turn end-to-end in Langfuse.
+
+  To exercise the Stage 3 chat-embedded document path instead of a separate /ingest call, add a
+  `pending_document` object: {"data_base64": "...", "filename": "lab.pdf", "doc_type": "lab_pdf"}
+  (also requires patient_pid at top level for lab_pdf/intake_form doc types).
+}

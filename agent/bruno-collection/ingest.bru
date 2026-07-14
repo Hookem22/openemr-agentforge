@@ -1,0 +1,33 @@
+meta {
+  name: Ingest
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{base_url}}/ingest
+  body: multipartForm
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{bearer_token}}
+}
+
+body:multipart-form {
+  patient_id: {{patient_pid}}
+  doc_type: lab_pdf
+  patient_uuid: {{patient_id}}
+  file: @file(../eval/fixtures/maria_gonzalez_lab.pdf)
+}
+
+docs {
+  The intake-extractor worker's standalone HTTP entry point (W2_ARCHITECTURE.md Section 2) -- upload
+  -> dedup -> Claude vision extraction -> schema validation -> persist, all in one call, independent
+  of any chat turn. `patient_id` here is the OpenEMR-native int pid (opposite of /chat's patient_id,
+  which is the FHIR uuid) -- see agent/app/ingestion.py's docstrings for why the two write paths
+  this calls into (medication vs. allergy endpoints) key the patient differently.
+
+  `patient_uuid` is only required when doc_type=intake_form (the allergy endpoint needs it); safe to
+  always include it as shown here.
+}

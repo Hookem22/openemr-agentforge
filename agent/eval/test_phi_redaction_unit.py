@@ -148,6 +148,9 @@ def test_verify_node_sends_only_claim_counts_not_claim_text(monkeypatch):
         "tool_failures": [],
         "verified_claims": [],
         "stripped_claims": [],
+        "extracted_facts": [],
+        "evidence_snippets": [],
+        "evidence_empty": False,
     }
 
     graph_module.verify_node(state)

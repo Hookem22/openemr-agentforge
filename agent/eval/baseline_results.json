@@ -1,0 +1,7 @@
+{
+  "citations": 0.9,
+  "evidence_retrieval": 1.0,
+  "extraction": 1.0,
+  "missing_data": 0.9,
+  "refusals": 1.0
+}

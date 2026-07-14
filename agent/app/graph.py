@@ -5,6 +5,18 @@ Flow: agent (Claude, tool-use) -> execute_tools -> back to agent -> ... -> agent
 any other way than calling `provide_answer`, which is what makes the "every claim carries a
 source" requirement (Section 5) structural rather than a prompt suggestion.
 
+W2_ARCHITECTURE.md Section 3 adds an outer routing layer above this unmodified loop: entry ->
+supervisor -> {intake_extractor | evidence_retriever | agent (finalize)}, with the two workers
+looping back to supervisor and every routing decision logged to `handoff_log` (not just internal
+state -- returned in the API response so a grader can see *why* the supervisor routed where it
+did, per the "supervisor becomes a black box" pitfall the assignment calls out). `intake_extractor`
+calls `ingestion.attach_and_extract`; `evidence_retriever` calls `rag.retrieve`. Both workers inject
+their findings into the turn's message history as extra text blocks on the user's turn (not a new
+message -- see `_append_context_to_last_user_message`, which avoids breaking the Anthropic API's
+role-alternation requirement) so `agent_node`'s Claude call can cite them, and `verify_node`
+(extended, not replaced) checks those citations against `extracted_facts`/`evidence_snippets`
+the same deterministic way it already checks FHIR tool citations.
+
 Observability (agent-implementation.md decision #3): each node below is wrapped with Langfuse's
 `@observe` decorator, so a single chat turn produces one trace (`run_turn`) with child spans for
 the LLM call, each individual tool call, and the verifier -- giving per-step latency, tool
@@ -29,6 +41,10 @@ error... Client will be disabled" warning per call but does not raise -- the age
 from __future__ import annotations
 
 import hashlib
+import json
+import uuid
+from datetime import datetime, timezone
+
 import httpx
 from typing import TypedDict
 
@@ -38,8 +54,22 @@ from langgraph.graph import END, StateGraph
 
 from .config import settings
 from .fhir_client import FhirClient
+from .ingestion import DocType, IngestionError, attach_and_extract
+from .rag import retrieve
 from .tools import TOOL_FUNCTIONS, TOOL_SCHEMAS
 from .verifier import verify_claims
+
+# Failure-mode guard (W2_ARCHITECTURE.md Section 10, "Supervisor routing error" row): a hard cap on
+# handoffs per turn so a routing bug (e.g. a heuristic that never sets its "done" flag) fails closed
+# to `verify` with whatever was gathered, rather than looping forever. 6 is generous headroom over
+# the worst realistic case (document -> supervisor -> evidence -> supervisor -> agent = 4 hops).
+MAX_HANDOFFS_PER_TURN = 6
+
+EVIDENCE_KEYWORDS = (
+    "guideline", "guidelines", "recommend", "recommendation", "recommended",
+    "should i", "should we", "target", "threshold", "screen", "screening",
+    "standard of care", "first-line", "first line", "when to start", "evidence",
+)
 
 TOOL_RESOURCE_TYPE = {
     "get_recent_encounters": "Encounter",
@@ -50,6 +80,13 @@ TOOL_RESOURCE_TYPE = {
     "get_labs": "Observation",
     "get_notes": "DocumentReference",
 }
+
+# The exact resource_type strings verify_claims will accept for a no_data claim -- an enum here
+# (rather than a free-text string + prose instruction) is what actually pins the model down. Found
+# via the Stage 4 golden set: without this, the model reasonably wrote resource_type="Medication"
+# (a real, but wrong, FHIR resource name) instead of "MedicationRequest", silently stripping an
+# otherwise-correct "no medications on file" claim from the clinician.
+NO_DATA_RESOURCE_TYPES = list(dict.fromkeys(TOOL_RESOURCE_TYPE.values())) + ["guideline"]
 
 PROVIDE_ANSWER_TOOL = {
     "name": "provide_answer",
@@ -71,10 +108,24 @@ PROVIDE_ANSWER_TOOL = {
                         "text": {"type": "string"},
                         "source": {
                             "type": "object",
+                            "description": (
+                                "Either a Week 1 FHIR citation ({resource_type, resource_id}), a "
+                                "no_data marker ({type: 'no_data', resource_type}), or -- for facts "
+                                "surfaced by the intake-extractor/evidence-retriever workers -- the "
+                                "unified citation copied exactly from that fact's own citation object "
+                                "({source_type, source_id, field_or_chunk_id})."
+                            ),
                             "properties": {
-                                "resource_type": {"type": "string"},
+                                "resource_type": {
+                                    "type": "string",
+                                    "enum": NO_DATA_RESOURCE_TYPES,
+                                    "description": "For a no_data claim, use exactly one of these -- not a synonym (e.g. 'MedicationRequest', never 'Medication').",
+                                },
                                 "resource_id": {"type": "string"},
                                 "type": {"type": "string", "enum": ["no_data"]},
+                                "source_type": {"type": "string", "enum": ["document", "guideline"]},
+                                "source_id": {"type": "string"},
+                                "field_or_chunk_id": {"type": "string"},
                             },
                         },
                     },
@@ -99,24 +150,234 @@ Rules, no exceptions:
   plausible relevance to the presenting complaint -- do not list an unrelated condition (e.g. \
   osteoarthritis for a chest-pain visit) flatly alongside relevant ones; if you mention it at all, \
   explicitly note it's unrelated/lower-priority.
+- If an earlier message in this conversation is labeled "[Extracted from uploaded document ...]" or \
+  "[Retrieved guideline evidence ...]", each line below that label is a JSON object with a `text` \
+  fact and its own `citation`. When you cite one of these facts in provide_answer, copy that \
+  citation's source_type, source_id, and field_or_chunk_id fields exactly as given -- never invent \
+  or alter them. If a "[Retrieved guideline evidence]" label says no evidence was found, say so \
+  plainly rather than fabricating guideline-sourced guidance.
 - You must end every turn by calling provide_answer -- this is the only way to respond.
 """
 
 
 class AgentState(TypedDict):
-    patient_id: str
+    patient_id: str  # FHIR patient uuid (Week 1 convention -- used by every FHIR tool call)
     bearer_token: str
+    patient_pid: str | None  # OpenEMR-native int pid, only required when pending_document is set
     messages: list[dict]
     tool_results_this_turn: list[dict]
     tool_failures: list[dict]
     verified_claims: list[dict]
     stripped_claims: list[dict]
+    # Stage 3 additions (W2_ARCHITECTURE.md Section 3):
+    pending_document: dict | None  # {"data": bytes, "filename": str, "doc_type": DocType, "mimetype": str}
+    document_processed: bool
+    extracted_facts: list[dict]  # [{"text": str, "citation": dict}] flattened from attach_and_extract
+    evidence_snippets: list[dict]  # [{"text": str, "citation": dict}] flattened from rag.retrieve
+    evidence_fetched: bool
+    evidence_empty: bool
+    correlation_id: str
+    handoff_log: list[dict]  # [{"from": str, "to": str, "reason": str, "timestamp": str}]
 
 
 def _anthropic_client() -> Anthropic:
     if not settings.anthropic_api_key:
         raise RuntimeError("ANTHROPIC_API_KEY is not set")
     return Anthropic(api_key=settings.anthropic_api_key)
+
+
+def _latest_user_text(state: AgentState) -> str | None:
+    """Finds the clinician's own question text -- the first text block of the most recent `user`-
+    role message -- scanning past any extra text blocks workers appended to that same turn (see
+    `_append_context_to_last_user_message`)."""
+    for message in reversed(state["messages"]):
+        if message.get("role") != "user":
+            continue
+        content = message.get("content")
+        if isinstance(content, str):
+            return content
+        for block in content:
+            if isinstance(block, dict) and block.get("type") == "text":
+                return block["text"]
+        return None
+    return None
+
+
+def _append_context_to_last_user_message(state: AgentState, text: str) -> None:
+    """Injects worker findings as an extra text block on the clinician's current turn rather than a
+    new message. A new `role: "user"` message here would violate the Anthropic API's role-
+    alternation rule (no assistant turn has happened yet at this point in the graph -- supervisor
+    and both workers all run before `agent_node`'s first Claude call)."""
+    last = state["messages"][-1]
+    if last.get("role") != "user":
+        state["messages"].append({"role": "user", "content": [{"type": "text", "text": text}]})
+        return
+    content = last["content"]
+    if isinstance(content, str):
+        last["content"] = [{"type": "text", "text": content}, {"type": "text", "text": text}]
+    else:
+        content.append({"type": "text", "text": text})
+
+
+def _facts_to_context_message(facts: list[dict], label: str) -> str:
+    if not facts:
+        return f"[{label}: none found]"
+    lines = [f"[{label} -- {len(facts)} facts. Copy each `citation` object exactly, unmodified, "
+             f"when citing one of these in provide_answer.]"]
+    lines.extend(json.dumps({"text": f["text"], "citation": f["citation"]}) for f in facts)
+    return "\n".join(lines)
+
+
+def _with_field_id(citation: dict, field_id: str) -> dict:
+    """Overrides `citation.field_or_chunk_id` with a deterministic, code-assigned identifier
+    instead of trusting whatever (if anything) the VLM itself put there. Real live testing found
+    Claude leaves this null for lab results -- the extraction tool schema only asks it to name
+    *which field* ('value', 'test_name'), not *which row* -- so every result in a multi-result lab
+    PDF collapsed onto the same (document, id, None) key, letting a claim cite any one of them
+    without the verifier distinguishing which. Same "don't trust the model's own attestation"
+    principle verifier.py already applies to claims -- applied here to citation metadata too."""
+    return {**citation, "field_or_chunk_id": field_id}
+
+
+def _flatten_extracted_facts(extraction: dict, doc_type: DocType) -> list[dict]:
+    """Turns a validated LabPdfExtraction/IntakeFormExtraction dict into flat {text, citation}
+    facts the agent can cite -- one per schema field that carries its own citation (schemas.py's
+    `_ExtractedField`), never a synthesized value without one."""
+    facts: list[dict] = []
+    if doc_type == "lab_pdf":
+        for i, r in enumerate(extraction.get("results", [])):
+            unit = f" {r['unit']}" if r.get("unit") else ""
+            range_note = f" (reference range {r['reference_range']})" if r.get("reference_range") else ""
+            facts.append({
+                "text": f"{r['test_name']}: {r['value']}{unit}{range_note}",
+                "citation": _with_field_id(r["citation"], f"results[{i}]"),
+            })
+        return facts
+
+    demographics = extraction.get("demographics")
+    if demographics:
+        facts.append({
+            "text": f"Demographics: name={demographics.get('name')}, dob={demographics.get('date_of_birth')}, "
+                    f"sex={demographics.get('sex')}",
+            "citation": _with_field_id(demographics["citation"], "demographics"),
+        })
+    chief_concern = extraction.get("chief_concern")
+    if chief_concern:
+        facts.append({
+            "text": f"Chief concern: {chief_concern['text']}",
+            "citation": _with_field_id(chief_concern["citation"], "chief_concern"),
+        })
+    for i, m in enumerate(extraction.get("current_medications", [])):
+        dose = f" {m['dose']}" if m.get("dose") else ""
+        freq = f" {m['frequency']}" if m.get("frequency") else ""
+        facts.append({
+            "text": f"Medication: {m['name']}{dose}{freq}",
+            "citation": _with_field_id(m["citation"], f"current_medications[{i}]"),
+        })
+    for i, a in enumerate(extraction.get("allergies", [])):
+        reaction = f" (reaction: {a['reaction']})" if a.get("reaction") else ""
+        facts.append({
+            "text": f"Allergy: {a['allergen']}{reaction}",
+            "citation": _with_field_id(a["citation"], f"allergies[{i}]"),
+        })
+    for i, f in enumerate(extraction.get("family_history", [])):
+        facts.append({
+            "text": f"Family history: {f['relation']} - {f['condition']}",
+            "citation": _with_field_id(f["citation"], f"family_history[{i}]"),
+        })
+    return facts
+
+
+def _evidence_needed(state: AgentState) -> bool:
+    text = (_latest_user_text(state) or "").lower()
+    return any(keyword in text for keyword in EVIDENCE_KEYWORDS)
+
+
+def _route_decision(state: AgentState) -> tuple[str, str]:
+    if len(state["handoff_log"]) >= MAX_HANDOFFS_PER_TURN:
+        return "agent", f"handoff cap ({MAX_HANDOFFS_PER_TURN}) reached this turn -- failing closed to finalize with whatever was gathered"
+    if state.get("pending_document") and not state.get("document_processed"):
+        return "intake_extractor", "a document is pending and has not been processed yet this turn"
+    if _evidence_needed(state) and not state.get("evidence_fetched"):
+        return "evidence_retriever", "the question references guideline/recommendation-style evidence and none has been fetched yet this turn"
+    return "agent", "no pending document or evidence need -- ready to finalize"
+
+
+@observe(name="supervisor", capture_input=False, capture_output=False)
+def supervisor_node(state: AgentState) -> AgentState:
+    to, reason = _route_decision(state)
+    state["handoff_log"].append({
+        "from": "supervisor",
+        "to": to,
+        "reason": reason,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    })
+    # Redacted: reason strings are static heuristic labels (never patient data), safe to log.
+    get_client().update_current_span(output={"routed_to": to, "reason": reason})
+    return state
+
+
+def route_after_supervisor(state: AgentState) -> str:
+    return state["handoff_log"][-1]["to"]
+
+
+@observe(name="intake_extractor", capture_input=False, capture_output=False)
+def intake_extractor_node(state: AgentState) -> AgentState:
+    # Redacted: `doc["data"]` is the raw document bytes and `result["extraction"]` is real PHI --
+    # capture_input/output=False above stops @observe from auto-logging either. Only an outcome
+    # summary (counts/success flag) is sent manually below.
+    doc = state["pending_document"]
+    try:
+        # attach_and_extract's `patient_id` is the OpenEMR-native int pid (document/medication
+        # endpoints); its `patient_uuid` is the FHIR uuid (allergy endpoint only) -- the *opposite*
+        # of AgentState's own "patient_id" field, which has been the FHIR uuid ever since Week 1
+        # (see fhir_client.py/tools.py). `patient_pid` is the new field carrying the native int pid
+        # specifically for this call.
+        result = attach_and_extract(
+            patient_id=state["patient_pid"],
+            data=doc["data"],
+            filename=doc["filename"],
+            doc_type=doc["doc_type"],
+            bearer_token=state["bearer_token"],
+            mimetype=doc.get("mimetype", "application/pdf"),
+            patient_uuid=state["patient_id"],
+        )
+        facts = _flatten_extracted_facts(result["extraction"], doc["doc_type"])
+        state["extracted_facts"].extend(facts)
+        context_message = _facts_to_context_message(facts, "Extracted from uploaded document")
+        outcome = {"success": True, "fact_count": len(facts), "document_id": result["document_id"]}
+    except IngestionError as exc:
+        context_message = f"[Extracted from uploaded document: processing failed -- {exc}]"
+        outcome = {"success": False}
+
+    state["document_processed"] = True
+    _append_context_to_last_user_message(state, context_message)
+    get_client().update_current_span(output=outcome)
+    return state
+
+
+@observe(name="evidence_retriever", capture_input=False, capture_output=False)
+def evidence_retriever_node(state: AgentState) -> AgentState:
+    # Redacted: the clinician's question text and retrieved guideline text aren't raw patient PHI,
+    # but are still excluded from auto-capture for consistency with every other node's pattern --
+    # only a result count is sent manually below.
+    query = _latest_user_text(state) or ""
+    try:
+        results = retrieve(query)
+        outcome = {"success": True, "result_count": len(results)}
+    except RuntimeError as exc:
+        # W2_ARCHITECTURE.md Section 10: VOYAGE_API_KEY missing or an empty corpus -- degrade to "no
+        # evidence found" rather than crashing the turn.
+        results = []
+        outcome = {"success": False, "error": str(exc)}
+
+    snippets = [{"text": r.text, "citation": r.citation.model_dump()} for r in results]
+    state["evidence_snippets"].extend(snippets)
+    state["evidence_fetched"] = True
+    state["evidence_empty"] = state["evidence_empty"] or not snippets
+    _append_context_to_last_user_message(state, _facts_to_context_message(snippets, "Retrieved guideline evidence"))
+    get_client().update_current_span(output=outcome)
+    return state
 
 
 @observe(as_type="generation", name="agent_llm_call", capture_input=False, capture_output=False)
@@ -238,7 +499,13 @@ def execute_tools_node(state: AgentState) -> AgentState:
 def verify_node(state: AgentState) -> AgentState:
     tool_use = _final_tool_use(state)
     claims = tool_use["input"].get("claims", []) if tool_use else []
-    result = verify_claims(claims, state["tool_results_this_turn"])
+    result = verify_claims(
+        claims,
+        state["tool_results_this_turn"],
+        extracted_facts=state["extracted_facts"],
+        evidence_snippets=state["evidence_snippets"],
+        empty_evidence=state["evidence_empty"],
+    )
     state["verified_claims"] = result.verified_claims
     state["stripped_claims"] = result.stripped_claims
     if tool_use is not None:
@@ -272,10 +539,21 @@ def verify_node(state: AgentState) -> AgentState:
 
 def build_graph():
     graph = StateGraph(AgentState)
+    graph.add_node("supervisor", supervisor_node)
+    graph.add_node("intake_extractor", intake_extractor_node)
+    graph.add_node("evidence_retriever", evidence_retriever_node)
     graph.add_node("agent", agent_node)
     graph.add_node("execute_tools", execute_tools_node)
     graph.add_node("verify", verify_node)
-    graph.set_entry_point("agent")
+
+    graph.set_entry_point("supervisor")
+    graph.add_conditional_edges(
+        "supervisor",
+        route_after_supervisor,
+        {"intake_extractor": "intake_extractor", "evidence_retriever": "evidence_retriever", "agent": "agent"},
+    )
+    graph.add_edge("intake_extractor", "supervisor")
+    graph.add_edge("evidence_retriever", "supervisor")
     graph.add_conditional_edges("agent", route_after_agent, {"execute_tools": "execute_tools", "verify": "verify"})
     graph.add_edge("execute_tools", "agent")
     graph.add_edge("verify", END)
@@ -314,7 +592,14 @@ def _hashed_session_id(patient_id: str) -> str:
 
 
 @observe(name="copilot_chat_turn", capture_input=False, capture_output=False)
-def run_turn(patient_id: str, bearer_token: str, user_message: str, prior_messages: list[dict] | None = None) -> AgentState:
+def run_turn(
+    patient_id: str,
+    bearer_token: str,
+    user_message: str,
+    prior_messages: list[dict] | None = None,
+    patient_pid: str | None = None,
+    pending_document: dict | None = None,
+) -> AgentState:
     # Redacted: patient_id, bearer_token, user_message (clinician's literal question), and
     # prior_messages (full conversation) are all PHI/credentials -- capture_input/output=False
     # above stops @observe from auto-logging this function's args/return value. session_id uses a
@@ -324,14 +609,26 @@ def run_turn(patient_id: str, bearer_token: str, user_message: str, prior_messag
         client = get_client()
         client.set_current_trace_io(input={"message_length": len(user_message)})
         messages = (prior_messages or []) + [{"role": "user", "content": user_message}]
+        # W2_ARCHITECTURE.md Section 8: minted once per request, threaded through every node/span
+        # via handoff_log entries and returned in the API response so a full turn is traceable.
+        correlation_id = uuid.uuid4().hex
         initial_state: AgentState = {
             "patient_id": patient_id,
             "bearer_token": bearer_token,
+            "patient_pid": patient_pid,
             "messages": messages,
             "tool_results_this_turn": [],
             "tool_failures": [],
             "verified_claims": [],
             "stripped_claims": [],
+            "pending_document": pending_document,
+            "document_processed": False,
+            "extracted_facts": [],
+            "evidence_snippets": [],
+            "evidence_fetched": False,
+            "evidence_empty": False,
+            "correlation_id": correlation_id,
+            "handoff_log": [],
         }
         result = COMPILED_GRAPH.invoke(initial_state)
         client.set_current_trace_io(
@@ -339,6 +636,7 @@ def run_turn(patient_id: str, bearer_token: str, user_message: str, prior_messag
                 "verified_claims": len(result["verified_claims"]),
                 "stripped_claims": len(result["stripped_claims"]),
                 "tool_failures": len(result["tool_failures"]),
+                "handoffs": len(result["handoff_log"]),
             }
         )
         return result

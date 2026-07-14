@@ -1,0 +1,16 @@
+meta {
+  name: Health
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{base_url}}/health
+  body: none
+  auth: none
+}
+
+docs {
+  Liveness probe -- always returns {"status": "ok"} if the process is up. Does not check any
+  dependency (see Ready.bru for that).
+}
