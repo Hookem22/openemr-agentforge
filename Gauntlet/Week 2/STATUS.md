@@ -1,8 +1,8 @@
 # Week 2 Status — Multimodal Evidence Agent
 
 **Last updated:** 2026-07-14
-**Overall state:** Architecture documented. Stages 1-4 (document ingestion, hybrid RAG, supervisor + workers,
-eval gate) complete and verified end-to-end against real services. Stage 5 not started.
+**Overall state:** Architecture documented. Stages 1-4 complete and verified end-to-end. Stage 5 deployed
+and live (Railway); only the load-test/cost-analysis extension and the demo video remain.
 
 ## Checkpoints (from the assignment)
 
@@ -310,14 +310,38 @@ ingestion/RAG/graph code to exist before it can test it).
       local agent + OpenEMR stack via the Bruno CLI (`npx @usebruno/cli run`)** while building it, not
       just written to look plausible — including `Ingest`'s real multipart upload of a fixture PDF
       through the full extract-and-persist pipeline.
-- [ ] Deploy to Railway (`origin` + `railway-deploy` push) — held for explicit confirmation before
-      pushing/deploying (affects the shared production service).
+- [x] **Deployed to Railway** (`origin` + `railway-deploy` push, both services redeployed successfully) —
+      confirmed via `railway status` and live HTTP checks against both `openemr-app-production-ded9` and
+      `copilot-agent-production-8af2`.
+- [x] **Two more real deploy-time bugs found and fixed via the live production `/ready` check itself**
+      (the endpoint proved its own value immediately on first deploy):
+      1. `agent/Dockerfile` never copied `agent/data/` (the guideline corpus) into the built image —
+         only `agent/app/` — so `rag.py` correctly found zero chunks at runtime. `/ready` reported
+         `vector_index: "zero chunks"` right after the first deploy; fixed by adding `COPY agent/data
+         ./data`, re-verified live (`vector_index` now `ok`).
+      2. `/ready`'s `core_fhir_chat` check used a 3s timeout against OpenEMR's `/metadata` endpoint,
+         which measured ~4.3s in production (a large FHIR CapabilityStatement) — reported a false
+         `down`. Bumped to 8s, re-verified live (`core_fhir_chat` now `ok`).
+      3. `OEMR_API_BASE_URL` was never set on the deployed `copilot-agent` service at all (fell back to
+         the `localhost:8080` dev default, failing with connection-refused) — set directly via `railway
+         variables --set` (not a secret, safe to set without asking), re-verified live
+         (`document_storage` now `ok`).
+      Final live `/ready` result: `{"status": "degraded", checks: {core_fhir_chat: ok, document_storage:
+      ok, vector_index: ok, voyage_api: down ("VOYAGE_API_KEY is not set")}}` — exactly the intended
+      degraded-not-down behavior, with the one remaining gap being `VOYAGE_API_KEY` itself, which only the
+      user can provide (their own Voyage account credential) — needs to be set on the `copilot-agent`
+      Railway service for evidence retrieval to work in production; everything else (ingestion, FHIR
+      chat, extraction) is fully live and verified.
 - [ ] Extend `COST_ANALYSIS.md`/`LOADTEST.md` methodology to Week 2 flows (ingestion, extraction,
       retrieval, full multi-agent run) — real Anthropic/Voyage cost, most meaningfully run against the
-      deployed instance once Stage 5's deploy step happens, so sequenced after it.
+      now-deployed instance.
 - [ ] Record demo video — needs the user's own screen/voice, not something to do unprompted.
 
 ## Immediate next action
 
-Start Stage 5 (integrate, deploy, observe) — Stages 1-4 are all complete, verified, and gated. Run
-`./scripts/install-hooks.sh` once (from the repo root) to activate the pre-push eval gate before deploying.
+1. **User action needed**: set `VOYAGE_API_KEY` on the `copilot-agent` Railway service (`railway variables
+   --service copilot-agent --set "VOYAGE_API_KEY=..."` or via the Railway dashboard) so evidence retrieval
+   works in production — everything else is already live and verified.
+2. Run `./scripts/install-hooks.sh` once (from the repo root) to activate the pre-push eval gate locally.
+3. Extend `COST_ANALYSIS.md`/`LOADTEST.md` to Week 2 flows against the now-deployed instance.
+4. Record the demo video.
