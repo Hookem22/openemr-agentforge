@@ -83,7 +83,10 @@ def _check_core() -> tuple[str, str | None]:
     if not settings.anthropic_api_key:
         return "down", "ANTHROPIC_API_KEY is not set"
     try:
-        resp = httpx.get(f"{settings.fhir_base_url}/metadata", timeout=3.0)
+        # 8s, not 3s: the real /metadata response is a large FHIR CapabilityStatement -- measured
+        # ~4.3s against the deployed Railway instance, so 3s was a false-positive "down" waiting to
+        # happen on any normal network variance, not an actual outage signal.
+        resp = httpx.get(f"{settings.fhir_base_url}/metadata", timeout=8.0)
         if resp.status_code >= 500:
             return "down", f"OpenEMR FHIR metadata returned {resp.status_code}"
         return "ok", None
@@ -96,7 +99,7 @@ def _check_document_storage() -> tuple[str, str | None]:
     upload/procedure-result/medication/allergy write paths (Stage 1). A distinct check from
     `_check_core`'s FHIR reachability since this is a different base URL/API surface."""
     try:
-        resp = httpx.get(f"{settings.oemr_api_base_url}/patient", timeout=3.0)
+        resp = httpx.get(f"{settings.oemr_api_base_url}/patient", timeout=8.0)
         if resp.status_code in (200, 401, 403):  # reachable and answering -- auth failure is not a reachability failure
             return "ok", None
         return "degraded", f"OpenEMR standard API returned {resp.status_code}"
