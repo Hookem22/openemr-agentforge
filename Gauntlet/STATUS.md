@@ -1,20 +1,23 @@
-# Week 2 Status — Multimodal Evidence Agent
+# Project Status — AgentForge: Clinical Co-Pilot
 
 **Last updated:** 2026-07-15
-**Overall state:** MVP checkpoint **passed** (grader feedback received 2026-07-15 — see "MVP grader
-feedback" below). **Both flagged gaps are now done and verified**: server-side CI (a push/PR tier and
-a daily-scheduled real-API tier, each confirmed via a real, watched GitHub Actions run) and the
-cost/latency report extension to ingestion and retrieval (real Langfuse data + a real load test
-against the deployed instance). Remaining before Early Submission: the demo video and spot-checking
-the other 3 patients' uploads against production.
+**Week 1 is complete and submitted** — see `Week 1/SUBMISSION.md`. This file is the living status doc for
+Week 2 (Multimodal Evidence Agent) onward; most of the detail below is Week 2's build log.
+
+**Overall state: Early Submission checkpoint fully closed.** MVP checkpoint **passed** (grader feedback
+received 2026-07-15 — see "MVP grader feedback" below). Both flagged gaps were closed and verified:
+server-side CI (a push/PR tier and a daily-scheduled real-API tier, each confirmed via a real, watched
+GitHub Actions run) and the cost/latency report extension to ingestion and retrieval (real Langfuse data
++ a real load test against the deployed instance). The remaining Early Submission items — demo video,
+spot-checking the other 3 patients' uploads against production, and the social media post — are now done.
 
 ## Checkpoints (from the assignment)
 
 | Checkpoint | Deadline | Status |
 |---|---|---|
-| Architecture Defense | 4 hours from sprint start | **Done** — `W2_ARCHITECTURE.md` + `W2_Architecture_Slides.pptx` |
+| Architecture Defense | 4 hours from sprint start | **Done** — `Week 2/W2_ARCHITECTURE.md` + `Week 2/W2_Architecture_Slides.pptx` |
 | MVP | Tuesday @ 11:59PM | **Passed, submitted 2026-07-14** — grader feedback received 2026-07-15, see below |
-| Early Submission | Thursday 2026-07-16 @ 11:59PM | Both flagged gaps closed — demo video + patient spot-checks remaining |
+| Early Submission | Thursday 2026-07-16 @ 11:59PM | **Done** — both grader-flagged gaps closed, demo video recorded, all 4 patients spot-checked in production, social media post published |
 | Final | Sunday 2026-07-19 @ Noon | Not started |
 
 ## MVP grader feedback (received 2026-07-15)
@@ -23,7 +26,7 @@ Verbatim summary: the grader independently injected a regression into `verify_cl
 eval gate catch it in under a second, then drove a full OAuth flow against the live deployment through
 to a real, working `/ingest` call. Called out `STATUS.md` specifically as reading like "an actual
 engineering log... rather than a report written to look finished," and the citation contract +
-`W2_ARCHITECTURE.md` as the cleanest pieces of the submission. **MVP passed.**
+`Week 2/W2_ARCHITECTURE.md` as the cleanest pieces of the submission. **MVP passed.**
 
 Two concrete gaps flagged as the reason it's not further along, both to close before Early Submission:
 1. **No server-side CI anywhere** — only a real, but *opt-in and local*, pre-push hook
@@ -36,11 +39,11 @@ Two concrete gaps flagged as the reason it's not further along, both to close be
 
 ## What's done
 
-- `W2_ARCHITECTURE.md` — full design covering ingestion flow, worker graph, RAG design, citation contract,
+- `Week 2/W2_ARCHITECTURE.md` — full design covering ingestion flow, worker graph, RAG design, citation contract,
   eval-gate design, data ownership, observability extensions, failure modes, backup/recovery, and risks.
-- `W2_Architecture_Slides.pptx` — 3-slide architecture-defense deck (whole-system overview, literal worker-graph
+- `Week 2/W2_Architecture_Slides.pptx` — 3-slide architecture-defense deck (whole-system overview, literal worker-graph
   diagram, eval-gate design).
-- Key upfront decisions confirmed (see `W2_ARCHITECTURE.md` §12 for full rationale):
+- Key upfront decisions confirmed (see `Week 2/W2_ARCHITECTURE.md` §12 for full rationale):
   - Build one new native OpenEMR write path for lab results (`procedure_order`/`report`/`result`, using the
     already-existing but previously-unpopulated `document_id` column) rather than skipping native persistence.
   - Voyage AI for both embeddings (`voyage-3-lite`) and rerank (`rerank-2`) — one vendor instead of
@@ -50,10 +53,10 @@ Two concrete gaps flagged as the reason it's not further along, both to close be
   - LangGraph stays the orchestration framework (extends Week 1's graph, doesn't replace it).
   - Eval gate enforced via a local `pre-push` git hook (no GitLab CI runner assumed).
 
-## What's not done — the five MVP stages
+## The five MVP stages — build detail
 
-Ordered roughly as they should be tackled — later stages depend on earlier ones (the eval gate needs the
-ingestion/RAG/graph code to exist before it can test it).
+All five are done. Ordered roughly as they were tackled — later stages depend on earlier ones (the eval
+gate needs the ingestion/RAG/graph code to exist before it can test it).
 
 ### Stage 1 — Document ingestion (lab PDF + intake form) — DONE, verified end-to-end
 - [x] `agent/app/schemas.py` — `Citation`, `BoundingBox`, `LabResultField`, `IntakeFormExtraction` Pydantic
@@ -280,7 +283,7 @@ ingestion/RAG/graph code to exist before it can test it).
       from ~50% to ~20% (a few more genuinely observed phrasing variants were added to its keyword list too).
 - [x] **The most important finding of Stage 4, from actually rehearsing the assignment's hard-gate check**
       (temporarily disabling `verify_claims`'s citation check entirely — the single most dangerous class of
-      regression this whole project exists to prevent, exactly as `W2_ARCHITECTURE.md`'s own verification
+      regression this whole project exists to prevent, exactly as `Week 2/W2_ARCHITECTURE.md`'s own verification
       section describes rehearsing): running the 50-case golden set alone against this regression caught it
       in one trial (2 cases failed) but **completely missed it in another** (0 cases failed, gate reported
       PASSED) — because the golden set only notices a broken verifier when the model *also* happens to
@@ -296,7 +299,7 @@ ingestion/RAG/graph code to exist before it can test it).
       probabilistically caught. Re-verified after the fix: the gate now reliably fails in <1s on this
       regression every time, and passes cleanly (50/50, all categories 90-100%) once reverted.
 
-### Stage 5 — Integrate, deploy, observe — IN PROGRESS
+### Stage 5 — Integrate, deploy, observe — DONE, verified end-to-end
 - [x] `/ready` endpoint (`agent/app/main.py`) — degrades gracefully rather than a binary down, per
       Section 9: `core_fhir_chat` (Anthropic key + OpenEMR FHIR reachability) is the only check that can
       report `down`; `document_storage` (OpenEMR standard API), `vector_index` (guideline corpus
@@ -353,10 +356,11 @@ ingestion/RAG/graph code to exist before it can test it).
       user can provide (their own Voyage account credential) — needs to be set on the `copilot-agent`
       Railway service for evidence retrieval to work in production; everything else (ingestion, FHIR
       chat, extraction) is fully live and verified.
-- [ ] Extend `COST_ANALYSIS.md`/`LOADTEST.md` methodology to Week 2 flows (ingestion, extraction,
-      retrieval, full multi-agent run) — real Anthropic/Voyage cost, most meaningfully run against the
-      now-deployed instance.
-- [ ] Record demo video — needs the user's own screen/voice, not something to do unprompted.
+- [x] Extended `COST_ANALYSIS.md`/`LOADTEST.md` methodology to Week 2 flows (ingestion, extraction,
+      retrieval, full multi-agent run) — real Anthropic/Voyage cost, run against the deployed instance.
+      See `Week 2/COST_ANALYSIS.md` / `Week 2/LOADTEST.md`, and item 2 under "Plan for the rest of the
+      week" below for the findings.
+- [x] Demo video — recorded.
 
 ## MVP submission-day fixes (found via the user's own live testing after "done")
 
@@ -459,12 +463,14 @@ gaps below now come first:**
      fresh, explicit in-session confirmation before enabling it rather than assuming prior-session
      precedent carries over** — reverted immediately after the run (verified: `oauth_password_grant` back
      to `0`, temp client `is_enabled=0`).
-3. Record the demo video (needs the user's own screen/voice — walk through at minimum: a document upload,
-   a guideline-evidence question, and the sulfa-conflict safety scenario, since those are the 3 most
-   concrete proof points of what's new in Week 2).
-4. Spot-check the other 3 patients' fixture uploads (Maria, James, Dorothy) through the live widget —
-   Robert Chen is confirmed working in production, but the other 3 haven't been re-tested against the
-   deployed instance since the OAuth client change (only locally, earlier in the build).
+3. **Demo video — done.** Recorded, covering the document upload, a guideline-evidence question, and the
+   sulfa-conflict safety scenario — the 3 most concrete proof points of what's new in Week 2.
+4. **Patient spot-checks — done.** Maria, James, and Dorothy's fixture uploads (Robert Chen was already
+   confirmed earlier) have now all been re-tested through the live widget against the deployed instance
+   since the OAuth client change.
+5. **Social media post — done.**
+
+**Early Submission checkpoint: fully closed.** All items above are complete.
 
 **Before Final (Sunday 2026-07-19 @ Noon):** Section 13's deliberately-deferred stretch items are the
 natural pool to draw from if there's time/appetite, roughly in order of likely grading value:
