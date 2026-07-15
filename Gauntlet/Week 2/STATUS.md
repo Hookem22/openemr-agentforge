@@ -2,9 +2,11 @@
 
 **Last updated:** 2026-07-15
 **Overall state:** MVP checkpoint **passed** (grader feedback received 2026-07-15 — see "MVP grader
-feedback" below). Of the two flagged gaps, **server-side CI is now done and live-verified** (both a
-push/PR tier and a daily-scheduled real-API tier, each confirmed via a real, watched GitHub Actions
-run). Remaining before Early Submission: extending the cost/latency report to ingestion and retrieval.
+feedback" below). **Both flagged gaps are now done and verified**: server-side CI (a push/PR tier and
+a daily-scheduled real-API tier, each confirmed via a real, watched GitHub Actions run) and the
+cost/latency report extension to ingestion and retrieval (real Langfuse data + a real load test
+against the deployed instance). Remaining before Early Submission: the demo video and spot-checking
+the other 3 patients' uploads against production.
 
 ## Checkpoints (from the assignment)
 
@@ -12,7 +14,7 @@ run). Remaining before Early Submission: extending the cost/latency report to in
 |---|---|---|
 | Architecture Defense | 4 hours from sprint start | **Done** — `W2_ARCHITECTURE.md` + `W2_Architecture_Slides.pptx` |
 | MVP | Tuesday @ 11:59PM | **Passed, submitted 2026-07-14** — grader feedback received 2026-07-15, see below |
-| Early Submission | Thursday 2026-07-16 @ 11:59PM | In progress — server-side CI done, cost/latency report remaining |
+| Early Submission | Thursday 2026-07-16 @ 11:59PM | Both flagged gaps closed — demo video + patient spot-checks remaining |
 | Final | Sunday 2026-07-19 @ Noon | Not started |
 
 ## MVP grader feedback (received 2026-07-15)
@@ -436,15 +438,27 @@ gaps below now come first:**
      watched GitHub Actions run — not just pushed and assumed to work, matching the same rigor the grader
      specifically praised in the MVP review.
 
-2. **Extend cost/latency reporting to ingestion and retrieval** (grader-flagged gap #2, already
-   self-identified before feedback arrived but not yet executed). Extend `Week 1/COST_ANALYSIS.md` and
-   `Week 1/LOADTEST.md`'s methodology — real Langfuse per-trace data pulled from the now-deployed,
-   fully-healthy instance, not estimated, matching how the Week 1 numbers were built:
-   - Document ingestion: `document_ingestion` + `extraction` span cost/latency (the extraction generation
-     already logs token usage — Section 9's new spans exist specifically for this).
-   - Evidence retrieval: `evidence_retriever` span latency + Voyage embed/rerank cost.
-   - A full supervisor-routed multi-agent turn (document + evidence in one turn) vs. a plain Week-1-style
-     chat-only turn, to show the actual marginal cost/latency Week 2 adds.
+2. **Extend cost/latency reporting to ingestion and retrieval — done 2026-07-15** (grader-flagged gap #2).
+   `Gauntlet/Week 2/COST_ANALYSIS.md` and `Gauntlet/Week 2/LOADTEST.md`, both built the same way Week 1's
+   were — real Langfuse per-trace data and real load-test runs against the deployed instance, not estimated:
+   - **Real methodology finding**: pulling this data surfaced that the Tier 1 stubbed integration tests
+     still emit real Langfuse telemetry (the `@observe` decorator wraps the function, not the mocked API
+     call inside it) — 67-89% of raw `extraction`/`document_ingestion` observations were test artifacts,
+     identified by an exact signature and filtered out of every reported number.
+   - Document ingestion (`extraction` generation): $0.0252 mean cost, 11.17s mean latency (24 real samples)
+     — the single most expensive per-unit operation in the system, more than an entire chat turn.
+   - Evidence retrieval: 0.35s mean latency (38 real samples); Voyage cost computed from real measured
+     call volume × live-fetched published pricing (not estimated) — ~$0.000046/query, two orders of
+     magnitude cheaper than the Claude call that reasons over the retrieved evidence.
+   - Full-turn comparison via two concrete, named real trace IDs (not a statistic risking the same
+     contamination) — a plain chat-only turn ($0.0066, 5.78s) vs. an evidence-routed turn ($0.0148, 7.30s).
+   - Load test: `/ingest` shows steep latency growth under concurrency (15.9s → 60.5s mean, 1→5 users) —
+     much more severe than `/chat`'s flat curve — while RAG-triggering `/chat` stays flat like ordinary
+     chat. Zero errors at any level tested (1/3/5 for `/ingest`, 1/5/10 for RAG-chat), CPU/memory nowhere
+     near limits. **Used the same temporary password-grant pattern as Week 1's load test, but obtained
+     fresh, explicit in-session confirmation before enabling it rather than assuming prior-session
+     precedent carries over** — reverted immediately after the run (verified: `oauth_password_grant` back
+     to `0`, temp client `is_enabled=0`).
 3. Record the demo video (needs the user's own screen/voice — walk through at minimum: a document upload,
    a guideline-evidence question, and the sulfa-conflict safety scenario, since those are the 3 most
    concrete proof points of what's new in Week 2).
