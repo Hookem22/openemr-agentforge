@@ -13,9 +13,12 @@ from types import SimpleNamespace
 
 import httpx
 import pytest
+from fastapi.testclient import TestClient
 
 from app import ingestion as ingestion_module
+from app import main as main_module
 from app.ingestion import IngestionError, attach_and_extract
+from app.main import app
 
 FIXTURE = "eval/fixtures/maria_gonzalez_lab.pdf"
 
@@ -189,3 +192,32 @@ def test_document_upload_failure_raises_ingestion_error(monkeypatch):
 
     with pytest.raises(IngestionError, match="rejected the document upload"):
         attach_and_extract(patient_id="1", data=data, filename="lab.pdf", doc_type="lab_pdf", bearer_token="tok")
+
+
+def test_ingest_endpoint_returns_clean_json_on_an_upstream_401_not_a_raw_500(monkeypatch):
+    """Real production bug found live: an upstream OpenEMR call inside attach_and_extract (most
+    often an OAuth scope mismatch) raised an unhandled httpx.HTTPStatusError that propagated all
+    the way to FastAPI's default error handler, which returns HTML, not JSON. upload.php passes
+    that response through to the browser verbatim, so the widget's JSON.parse() failed with a
+    cryptic "Unexpected token 'I', 'Internal S'..." instead of a readable error. Guards that /ingest
+    now returns a clean, parseable JSON error with a real detail message instead."""
+    fake_request = httpx.Request("GET", "https://openemr.example/apis/default/api/patient/1/document_lookup")
+    fake_response = httpx.Response(401, request=fake_request)
+
+    def raise_401(*args, **kwargs):
+        raise httpx.HTTPStatusError("401 Unauthorized", request=fake_request, response=fake_response)
+
+    monkeypatch.setattr(main_module, "attach_and_extract", raise_401)
+
+    client = TestClient(app)
+    with open(FIXTURE, "rb") as f:
+        resp = client.post(
+            "/ingest",
+            data={"patient_id": "1", "doc_type": "lab_pdf"},
+            files={"file": ("lab.pdf", f, "application/pdf")},
+            headers={"Authorization": "Bearer tok"},
+        )
+
+    assert resp.status_code == 502
+    body = resp.json()  # must not raise -- this is exactly what broke in production
+    assert "401" in body["detail"]

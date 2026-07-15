@@ -233,6 +233,21 @@ async def ingest(
         )
     except IngestionError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except httpx.HTTPStatusError as exc:
+        # A real production bug found live: an upstream OpenEMR call inside attach_and_extract
+        # (e.g. document_lookup, medication/allergy persistence) failing -- most often an OAuth
+        # scope mismatch after a client re-registration -- was propagating as an unhandled
+        # exception all the way to FastAPI's default (HTML, not JSON) error handler.
+        # upload.php passes this response through to the browser verbatim ('http_errors' =>
+        # false), so any non-JSON body broke the widget's JSON.parse() with a cryptic
+        # "Unexpected token" error instead of a readable message. 502: the failure is in our own
+        # upstream dependency, not a client error on this /ingest request itself.
+        raise HTTPException(
+            status_code=502,
+            detail=f"OpenEMR request failed ({exc.response.status_code}) for {exc.request.url}",
+        ) from exc
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail=f"OpenEMR unreachable: {exc}") from exc
 
     get_client().flush()
     return result
