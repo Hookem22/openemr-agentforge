@@ -1,18 +1,36 @@
 # Week 2 Status — Multimodal Evidence Agent
 
-**Last updated:** 2026-07-14
-**Overall state:** All 5 MVP stages complete and deployed live to Railway. MVP checkpoint submitted
-2026-07-14. Remaining before Early Submission: load-test/cost-analysis extension to Week 2 flows and
-the demo video (see "Plan for the rest of the week" below).
+**Last updated:** 2026-07-15
+**Overall state:** MVP checkpoint **passed** (grader feedback received 2026-07-15 — see "MVP grader
+feedback" below). Two concrete gaps flagged before Early Submission: no server-side CI (only an opt-in
+local pre-push hook), and the cost/latency report doesn't cover ingestion or retrieval yet. Both are now
+the top priority (see "Plan for the rest of the week").
 
 ## Checkpoints (from the assignment)
 
 | Checkpoint | Deadline | Status |
 |---|---|---|
 | Architecture Defense | 4 hours from sprint start | **Done** — `W2_ARCHITECTURE.md` + `W2_Architecture_Slides.pptx` |
-| MVP | Tuesday @ 11:59PM | **Done, submitted 2026-07-14** — all 5 stages built, tested, deployed live |
-| Early Submission | Thursday 2026-07-16 @ 11:59PM | Not started |
+| MVP | Tuesday @ 11:59PM | **Passed, submitted 2026-07-14** — grader feedback received 2026-07-15, see below |
+| Early Submission | Thursday 2026-07-16 @ 11:59PM | Not started — 2 flagged gaps to close (server-side CI, ingestion/retrieval cost+latency) |
 | Final | Sunday 2026-07-19 @ Noon | Not started |
+
+## MVP grader feedback (received 2026-07-15)
+
+Verbatim summary: the grader independently injected a regression into `verify_claims` and watched the
+eval gate catch it in under a second, then drove a full OAuth flow against the live deployment through
+to a real, working `/ingest` call. Called out `STATUS.md` specifically as reading like "an actual
+engineering log... rather than a report written to look finished," and the citation contract +
+`W2_ARCHITECTURE.md` as the cleanest pieces of the submission. **MVP passed.**
+
+Two concrete gaps flagged as the reason it's not further along, both to close before Early Submission:
+1. **No server-side CI anywhere** — only a real, but *opt-in and local*, pre-push hook
+   (`scripts/install-hooks.sh`). A grader (or any other contributor) who never runs that script gets no
+   enforcement at all; the hard-gate rehearsal proved the *mechanism* works, but nothing today proves it
+   actually *runs* on a change nobody remembered to hook up locally.
+2. **Cost/latency report doesn't cover ingestion or retrieval** — `Week 1/COST_ANALYSIS.md` and
+   `Week 1/LOADTEST.md` are still Week-1-scoped (chat-only). This was already self-flagged in this doc's
+   own "Plan for the rest of the week" section before feedback arrived, but hadn't been done yet.
 
 ## What's done
 
@@ -366,23 +384,43 @@ part of validating the MVP is genuinely usable, not just "looks done":
 **Today (MVP, done):** all 5 stages built, tested (132 offline + 50-case golden set + live production
 verification), deployed to Railway, and the two submission-day bugs above fixed and re-verified.
 
-**Before Early Submission (Thursday 2026-07-16 @ 11:59PM):**
-1. ~~Confirm the upload fix actually resolved the user's issue~~ — **confirmed 2026-07-14**: the user
-   re-tested `robert_chen_lab.pdf`/`robert_chen_intake.pdf` against the live deployed widget after both
-   the OAuth client re-registration and the `/ingest` error-handling fix, and the upload succeeded. The
-   OAuth-scope-mismatch + non-JSON-500 bug class is confirmed resolved in production, not just believed to be.
-2. Extend `Week 1/COST_ANALYSIS.md` and `Week 1/LOADTEST.md`'s methodology to the Week 2 flows (document
-   ingestion, extraction, evidence retrieval, a full supervisor-routed multi-agent turn) using real
-   Langfuse cost/latency data pulled from the now-deployed instance, the same way Week 1's were built —
-   not estimated.
+**Before Early Submission (Thursday 2026-07-16 @ 11:59PM) — reprioritized after grader feedback, the two
+gaps below now come first:**
+
+1. **Server-side CI** (grader-flagged gap #1). `railway-deploy` already points at a real GitHub repo
+   (`github.com/Hookem22/openemr-agentforge`), so GitHub Actions is the natural fit — no new hosting
+   needed. Concrete plan:
+   - A workflow running Tier 1 (`test_*_unit.py` + `test_*_integration.py`, ~132 tests) on every push and
+     PR. This tier needs zero secrets (no live Anthropic/Voyage/OpenEMR calls), so it's unconditionally
+     runnable server-side starting immediately — directly closes "runs automatically, not opt-in."
+   - The hard-gate rehearsal already proved Tier 1 alone catches the most dangerous regression class (a
+     disabled verifier) 100% deterministically — so server-side CI is meaningful protection even before
+     Tier 2 is wired in.
+   - Tier 2 (the 50-case golden set) needs `ANTHROPIC_API_KEY`/`VOYAGE_API_KEY` as GitHub Actions secrets
+     plus a reachable OpenEMR + fresh bearer token — harder to run per-PR (the token expires hourly, and
+     spinning up a seeded OpenEMR container in CI is nontrivial). Realistic near-term shape: keep Tier 2 on
+     the local pre-push hook (already real, already rehearsed) plus a **scheduled** GitHub Actions job
+     hitting the already-deployed Railway instance and running `run_eval_gate.py --push-to-langfuse`
+     (already built in Stage 5) — gives server-side coverage without solving "ephemeral OpenEMR in CI" as a
+     blocking prerequisite. Document this split explicitly rather than silently only doing Tier 1.
+   - The local pre-push hook stays as defense-in-depth for the fast tier, not the sole enforcement
+     mechanism it is today.
+
+2. **Extend cost/latency reporting to ingestion and retrieval** (grader-flagged gap #2, already
+   self-identified before feedback arrived but not yet executed). Extend `Week 1/COST_ANALYSIS.md` and
+   `Week 1/LOADTEST.md`'s methodology — real Langfuse per-trace data pulled from the now-deployed,
+   fully-healthy instance, not estimated, matching how the Week 1 numbers were built:
+   - Document ingestion: `document_ingestion` + `extraction` span cost/latency (the extraction generation
+     already logs token usage — Section 9's new spans exist specifically for this).
+   - Evidence retrieval: `evidence_retriever` span latency + Voyage embed/rerank cost.
+   - A full supervisor-routed multi-agent turn (document + evidence in one turn) vs. a plain Week-1-style
+     chat-only turn, to show the actual marginal cost/latency Week 2 adds.
 3. Record the demo video (needs the user's own screen/voice — walk through at minimum: a document upload,
    a guideline-evidence question, and the sulfa-conflict safety scenario, since those are the 3 most
    concrete proof points of what's new in Week 2).
 4. Spot-check the other 3 patients' fixture uploads (Maria, James, Dorothy) through the live widget —
-   Robert Chen is now confirmed working in production, but the other 3 haven't been re-tested against the
+   Robert Chen is confirmed working in production, but the other 3 haven't been re-tested against the
    deployed instance since the OAuth client change (only locally, earlier in the build).
-5. Run `./scripts/install-hooks.sh` once (from the repo root) to activate the pre-push eval gate locally,
-   if not already done — keeps future changes honest before Early Submission's review.
 
 **Before Final (Sunday 2026-07-19 @ Noon):** Section 13's deliberately-deferred stretch items are the
 natural pool to draw from if there's time/appetite, roughly in order of likely grading value:
