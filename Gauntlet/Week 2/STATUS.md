@@ -2,9 +2,9 @@
 
 **Last updated:** 2026-07-15
 **Overall state:** MVP checkpoint **passed** (grader feedback received 2026-07-15 — see "MVP grader
-feedback" below). Two concrete gaps flagged before Early Submission: no server-side CI (only an opt-in
-local pre-push hook), and the cost/latency report doesn't cover ingestion or retrieval yet. Both are now
-the top priority (see "Plan for the rest of the week").
+feedback" below). Of the two flagged gaps, **server-side CI is now done and live-verified** (both a
+push/PR tier and a daily-scheduled real-API tier, each confirmed via a real, watched GitHub Actions
+run). Remaining before Early Submission: extending the cost/latency report to ingestion and retrieval.
 
 ## Checkpoints (from the assignment)
 
@@ -12,7 +12,7 @@ the top priority (see "Plan for the rest of the week").
 |---|---|---|
 | Architecture Defense | 4 hours from sprint start | **Done** — `W2_ARCHITECTURE.md` + `W2_Architecture_Slides.pptx` |
 | MVP | Tuesday @ 11:59PM | **Passed, submitted 2026-07-14** — grader feedback received 2026-07-15, see below |
-| Early Submission | Thursday 2026-07-16 @ 11:59PM | Not started — 2 flagged gaps to close (server-side CI, ingestion/retrieval cost+latency) |
+| Early Submission | Thursday 2026-07-16 @ 11:59PM | In progress — server-side CI done, cost/latency report remaining |
 | Final | Sunday 2026-07-19 @ Noon | Not started |
 
 ## MVP grader feedback (received 2026-07-15)
@@ -429,6 +429,12 @@ gaps below now come first:**
      the baseline to make the red X go away.
    - The local pre-push hook stays as defense-in-depth for the fast tier, alongside the now-live scheduled
      Tier 2 job — not the sole enforcement mechanism it was before today.
+   - **Re-run and confirmed green after the threshold fix** (run `29432103463`, 9m13s, genuine
+     `gh run view` success conclusion, not just a log grep): 49/50 cases passed, real pytest execution,
+     the 5 category scores pushed to Langfuse. **Server-side CI gap fully closed** — both tiers exist, run
+     automatically (push/PR and daily schedule, respectively), and have each been confirmed via a real,
+     watched GitHub Actions run — not just pushed and assumed to work, matching the same rigor the grader
+     specifically praised in the MVP review.
 
 2. **Extend cost/latency reporting to ingestion and retrieval** (grader-flagged gap #2, already
    self-identified before feedback arrived but not yet executed). Extend `Week 1/COST_ANALYSIS.md` and
