@@ -106,9 +106,14 @@ notes kept alongside the code:
   remains intentionally deferred (`Week 1/LANGFUSE_SELFHOST.md`), since it's no longer required for compliance,
   just a stronger infrastructure-level guarantee if ever needed.
 - **Demo video + social media post**: not yet done.
-- **Week 2 (multimodal evidence agent)**: architecture written — see `Week 2/W2_ARCHITECTURE.md` and
-  `Week 2/W2_Architecture_Slides.pptx`. MVP build (document ingestion, hybrid RAG, supervisor + 2 workers,
-  eval gate) in progress.
+- **Week 2 (multimodal evidence agent)**: MVP complete and deployed live — document ingestion (lab PDF +
+  intake form via Claude vision), hybrid RAG over a 7-document guideline corpus, a supervisor + 2-worker
+  LangGraph extension, and a 50-case eval gate (both a fast offline tier and a real-API golden-set tier)
+  all built, tested, and running against the deployed instance. Full detail, including real bugs found via
+  live production testing and the plan for the rest of the week: `Week 2/STATUS.md`. Architecture:
+  `Week 2/W2_ARCHITECTURE.md` / `Week 2/W2_Architecture_Slides.pptx`. Observability extensions:
+  `Week 2/OBSERVABILITY.md`. Still open: extending `Week 1/COST_ANALYSIS.md`/`LOADTEST.md` to Week 2 flows,
+  and the demo video.
 
 ## Key documents index
 
@@ -125,3 +130,7 @@ notes kept alongside the code:
 - `../docs/seed-sample-patients.sql`, `../docs/seed-additional-patients.sql` — sample patient data
 - `Week 2/W2_ARCHITECTURE.md` — Week 2 multimodal evidence agent architecture
 - `Week 2/W2_Architecture_Slides.pptx` — Week 2 architecture defense slides
+- `Week 2/STATUS.md` — Week 2 build status, real bugs found/fixed, and the plan for the rest of the week
+- `Week 2/OBSERVABILITY.md` — Week 2 observability extensions (new spans, alerts, `/ready` endpoint)
+- `../agent/eval/README.md` — updated for Week 2: 132 offline tests + the 50-case golden-set gate
+- `../agent/bruno-collection/` — verified API collection (Health/Ready/Chat/Ingest)

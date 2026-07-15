@@ -1,17 +1,18 @@
 # Week 2 Status — Multimodal Evidence Agent
 
 **Last updated:** 2026-07-14
-**Overall state:** Architecture documented. Stages 1-4 complete and verified end-to-end. Stage 5 deployed
-and live (Railway); only the load-test/cost-analysis extension and the demo video remain.
+**Overall state:** All 5 MVP stages complete and deployed live to Railway. MVP checkpoint submitted
+2026-07-14. Remaining before Early Submission: load-test/cost-analysis extension to Week 2 flows and
+the demo video (see "Plan for the rest of the week" below).
 
 ## Checkpoints (from the assignment)
 
 | Checkpoint | Deadline | Status |
 |---|---|---|
 | Architecture Defense | 4 hours from sprint start | **Done** — `W2_ARCHITECTURE.md` + `W2_Architecture_Slides.pptx` |
-| MVP | Tuesday @ 11:59PM | **Not started** — this doc is the plan to get there |
-| Early Submission | Thursday @ 11:59PM | Not started |
-| Final | Sunday @ Noon | Not started |
+| MVP | Tuesday @ 11:59PM | **Done, submitted 2026-07-14** — all 5 stages built, tested, deployed live |
+| Early Submission | Thursday 2026-07-16 @ 11:59PM | Not started |
+| Final | Sunday 2026-07-19 @ Noon | Not started |
 
 ## What's done
 
@@ -337,11 +338,56 @@ ingestion/RAG/graph code to exist before it can test it).
       now-deployed instance.
 - [ ] Record demo video — needs the user's own screen/voice, not something to do unprompted.
 
-## Immediate next action
+## MVP submission-day fixes (found via the user's own live testing after "done")
 
-1. **User action needed**: set `VOYAGE_API_KEY` on the `copilot-agent` Railway service (`railway variables
-   --service copilot-agent --set "VOYAGE_API_KEY=..."` or via the Railway dashboard) so evidence retrieval
-   works in production — everything else is already live and verified.
-2. Run `./scripts/install-hooks.sh` once (from the repo root) to activate the pre-push eval gate locally.
-3. Extend `COST_ANALYSIS.md`/`LOADTEST.md` to Week 2 flows against the now-deployed instance.
-4. Record the demo video.
+Two more real production bugs surfaced the moment the user actually drove the deployed widget through a
+document upload — worth calling out separately since they landed *after* the Stage 5 write-up above, as
+part of validating the MVP is genuinely usable, not just "looks done":
+
+- The deployed Clinical Co-Pilot OAuth2 client was registered before the Week 2 scopes existed, so a
+  downstream `document_lookup` call inside `attach_and_extract` got a `401`, which propagated as an
+  unhandled `httpx.HTTPStatusError` all the way to FastAPI's default (HTML, not JSON) error handler.
+  `upload.php` passes that response straight through to the browser, so the widget's `JSON.parse()` broke
+  with `"Unexpected token 'I', \"Internal S\"..."`. Fixed two ways: (1) registered a fresh OAuth2 client
+  with the full Week 2 scope list and updated `COPILOT_CLIENT_ID`/`SECRET` on the deployed `openemr-app`
+  service; (2) `/ingest` now catches `httpx.HTTPStatusError`/`HTTPError` and returns a clean JSON 502
+  instead of crashing, guarded by a new regression test
+  (`test_ingest_endpoint_returns_clean_json_on_an_upstream_401_not_a_raw_500`) so this class of bug can't
+  silently return.
+- Confirms the value of testing the *actual deployed instance* end-to-end, not just trusting `/ready` and
+  unit tests — `/ready` reported everything `ok` at the time (it doesn't and can't probe every possible
+  OAuth scope combination), but a real upload still failed until this was caught live.
+
+## Plan for the rest of the week
+
+**Today (MVP, done):** all 5 stages built, tested (132 offline + 50-case golden set + live production
+verification), deployed to Railway, and the two submission-day bugs above fixed and re-verified.
+
+**Before Early Submission (Thursday 2026-07-16 @ 11:59PM):**
+1. **Confirm the upload fix actually resolved the user's issue** — re-test `robert_chen_lab.pdf` and
+   `robert_chen_intake.pdf` (and ideally the other 6 fixture docs) through the live widget now that both
+   the OAuth client and the error-handling fix are deployed. This is the single highest-priority item —
+   everything else assumes this is actually working end-to-end, not just believed to be.
+2. Extend `Week 1/COST_ANALYSIS.md` and `Week 1/LOADTEST.md`'s methodology to the Week 2 flows (document
+   ingestion, extraction, evidence retrieval, a full supervisor-routed multi-agent turn) using real
+   Langfuse cost/latency data pulled from the now-deployed instance, the same way Week 1's were built —
+   not estimated.
+3. Record the demo video (needs the user's own screen/voice — walk through at minimum: a document upload,
+   a guideline-evidence question, and the sulfa-conflict safety scenario, since those are the 3 most
+   concrete proof points of what's new in Week 2).
+4. Spot-check the other 3 patients' fixture uploads (Maria, James, Dorothy) through the live widget, not
+   just Robert Chen, since he's the only one confirmed tested against production so far.
+5. Run `./scripts/install-hooks.sh` once (from the repo root) to activate the pre-push eval gate locally,
+   if not already done — keeps future changes honest before Early Submission's review.
+
+**Before Final (Sunday 2026-07-19 @ Noon):** Section 13's deliberately-deferred stretch items are the
+natural pool to draw from if there's time/appetite, roughly in order of likely grading value:
+- A critic agent that rejects uncited claims (the assignment explicitly calls this out as an extension
+  deliverable, not core — but it's the most directly aligned with the verification-layer theme already
+  central to both weeks' architecture).
+- Contextual retrieval improvements (better chunking, query rewriting) if the RAG evidence quality needs
+  sharpening based on Early Submission feedback.
+- A third document type (referral fax/medication list) or a lab-trend-chart widget — lower priority unless
+  specifically requested, since they're pure feature-surface expansion rather than deepening what's already
+  built.
+- Anything Early Submission feedback specifically flags — that should take priority over this list.
