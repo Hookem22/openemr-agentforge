@@ -140,8 +140,13 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--update-baseline", action="store_true", help="write this run's results as the new baseline instead of gating against it")
     parser.add_argument("--skip-tier1", action="store_true", help="skip the unit/integration suite (debugging the gate itself, not for normal use)")
+    parser.add_argument("--tier1-only", action="store_true", help="run only the Tier 1 unit/integration suite and exit -- no live API, no secrets needed (the server-side CI entry point, .github/workflows/agent-tier1.yml)")
     parser.add_argument("--push-to-langfuse", action="store_true", help="also push this run's category pass rates as Langfuse scores (for the Section 9 eval-regression alert)")
     args = parser.parse_args()
+
+    if args.tier1_only:
+        print("Running Tier 1 (unit/integration) suite only -- no live API, no secrets needed...")
+        return 0 if run_tier1_suite() else 1
 
     if not args.skip_tier1:
         print("Tier 1: running the deterministic unit/integration suite (no live API)...")

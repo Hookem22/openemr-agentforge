@@ -1,0 +1,41 @@
+name: Agent Tier 1 (unit + integration)
+
+# Server-side CI for the Clinical Co-Pilot agent (Gauntlet/Week 2/STATUS.md's "MVP grader feedback"
+# section): runs on every push and pull request, not opt-in like the local pre-push hook
+# (scripts/install-hooks.sh). Needs zero secrets -- every test here stubs out Anthropic/OpenEMR/
+# Voyage, so this job is unconditionally runnable regardless of API keys or a live OpenEMR instance.
+#
+# This alone is meaningful protection, not just a placeholder: the Stage 4 hard-gate rehearsal
+# (see agent/eval/run_eval_gate.py's module docstring) found that Tier 1 catches a disabled
+# verifier -- the single most dangerous class of regression this project exists to prevent --
+# 100% deterministically, where the Tier 2 golden set alone only catches it probabilistically.
+#
+# Tier 2 (the 50-case golden set, real Anthropic + Voyage APIs, needs a live OpenEMR) is
+# deliberately NOT run here -- see agent-tier2-scheduled.yml and Gauntlet/Week 2/STATUS.md for why
+# it runs on a different trigger instead of blocking every push.
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  tier1:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: agent
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: agent/requirements-dev.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Run Tier 1 (unit + integration) suite
+        run: python eval/run_eval_gate.py --tier1-only
