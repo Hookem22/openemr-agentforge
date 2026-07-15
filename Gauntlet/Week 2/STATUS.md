@@ -357,6 +357,9 @@ part of validating the MVP is genuinely usable, not just "looks done":
 - Confirms the value of testing the *actual deployed instance* end-to-end, not just trusting `/ready` and
   unit tests — `/ready` reported everything `ok` at the time (it doesn't and can't probe every possible
   OAuth scope combination), but a real upload still failed until this was caught live.
+- **Re-tested and confirmed fixed 2026-07-14**: the user re-uploaded `robert_chen_lab.pdf` and
+  `robert_chen_intake.pdf` through the live deployed widget after both fixes above shipped, and both
+  succeeded. This bug class is closed, not just believed fixed.
 
 ## Plan for the rest of the week
 
@@ -364,10 +367,10 @@ part of validating the MVP is genuinely usable, not just "looks done":
 verification), deployed to Railway, and the two submission-day bugs above fixed and re-verified.
 
 **Before Early Submission (Thursday 2026-07-16 @ 11:59PM):**
-1. **Confirm the upload fix actually resolved the user's issue** — re-test `robert_chen_lab.pdf` and
-   `robert_chen_intake.pdf` (and ideally the other 6 fixture docs) through the live widget now that both
-   the OAuth client and the error-handling fix are deployed. This is the single highest-priority item —
-   everything else assumes this is actually working end-to-end, not just believed to be.
+1. ~~Confirm the upload fix actually resolved the user's issue~~ — **confirmed 2026-07-14**: the user
+   re-tested `robert_chen_lab.pdf`/`robert_chen_intake.pdf` against the live deployed widget after both
+   the OAuth client re-registration and the `/ingest` error-handling fix, and the upload succeeded. The
+   OAuth-scope-mismatch + non-JSON-500 bug class is confirmed resolved in production, not just believed to be.
 2. Extend `Week 1/COST_ANALYSIS.md` and `Week 1/LOADTEST.md`'s methodology to the Week 2 flows (document
    ingestion, extraction, evidence retrieval, a full supervisor-routed multi-agent turn) using real
    Langfuse cost/latency data pulled from the now-deployed instance, the same way Week 1's were built —
@@ -375,8 +378,9 @@ verification), deployed to Railway, and the two submission-day bugs above fixed 
 3. Record the demo video (needs the user's own screen/voice — walk through at minimum: a document upload,
    a guideline-evidence question, and the sulfa-conflict safety scenario, since those are the 3 most
    concrete proof points of what's new in Week 2).
-4. Spot-check the other 3 patients' fixture uploads (Maria, James, Dorothy) through the live widget, not
-   just Robert Chen, since he's the only one confirmed tested against production so far.
+4. Spot-check the other 3 patients' fixture uploads (Maria, James, Dorothy) through the live widget —
+   Robert Chen is now confirmed working in production, but the other 3 haven't been re-tested against the
+   deployed instance since the OAuth client change (only locally, earlier in the build).
 5. Run `./scripts/install-hooks.sh` once (from the repo root) to activate the pre-push eval gate locally,
    if not already done — keeps future changes honest before Early Submission's review.
 
