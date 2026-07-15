@@ -1,8 +1,8 @@
 """One-off script generating presentation-ready PNG charts summarizing the Sonnet-vs-Haiku model
 trade-off and cost-at-scale projections, for a business (non-technical) audience.
 
-Source data: agent/MODEL_TRADEOFF.md (measured Sonnet-vs-Haiku cost/latency/accuracy) and
-agent/COST_ANALYSIS.md (naive vs. architecture-adjusted cost projections at 100/1K/10K/100K users).
+Source data: Gauntlet/Week 1/MODEL_TRADEOFF.md (measured Sonnet-vs-Haiku cost/latency/accuracy) and
+Gauntlet/Week 1/COST_ANALYSIS.md (naive vs. architecture-adjusted cost projections at 100/1K/10K/100K users).
 Not wired into any app code path -- run manually, ad hoc, whenever these source docs change and the
 charts need refreshing. matplotlib is not added to requirements.txt since it's a one-off authoring tool,
 not a runtime dependency of the agent service.
@@ -47,7 +47,7 @@ def money(x, _pos=None):
 
 
 # ---------------------------------------------------------------------------
-# Chart 1: Sonnet vs. Haiku -- cost, latency, accuracy (measured, agent/MODEL_TRADEOFF.md)
+# Chart 1: Sonnet vs. Haiku -- cost, latency, accuracy (measured, Gauntlet/Week 1/MODEL_TRADEOFF.md)
 # ---------------------------------------------------------------------------
 fig, axes = plt.subplots(1, 3, figsize=(13, 4.5))
 fig.suptitle(
@@ -97,7 +97,7 @@ ax.spines[["top", "right"]].set_visible(False)
 
 fig.text(
     0.5, -0.06,
-    "Source: agent/MODEL_TRADEOFF.md -- real measured data (Langfuse traces + eval suite), not estimates.",
+    "Source: Gauntlet/Week 1/MODEL_TRADEOFF.md -- real measured data (Langfuse traces + eval suite), not estimates.",
     ha="center", fontsize=9, color=GRAY, style="italic",
 )
 fig.tight_layout()
@@ -144,7 +144,7 @@ def small_multiples_cost_chart(values_a, values_b, label_a, label_b, color_a, co
     plt.close(fig)
 
 
-# Chart 2: Naive vs. architecture-adjusted monthly cost at scale (agent/COST_ANALYSIS.md)
+# Chart 2: Naive vs. architecture-adjusted monthly cost at scale (Gauntlet/Week 1/COST_ANALYSIS.md)
 naive = [2900, 29000, 289000, 2890000]
 adjusted = [2930, 26400, 250000, 1985000]
 small_multiples_cost_chart(
@@ -152,7 +152,7 @@ small_multiples_cost_chart(
     "Naive projection (linear $/turn x users)", "With planned architecture (caching, autoscaling, tiering)",
     GRAY, TEAL,
     "Projected Monthly Cost at Scale: Naive vs. Planned Architecture",
-    "Source: agent/COST_ANALYSIS.md. Each panel is its own scale -- compare the % change within a panel,\n"
+    "Source: Gauntlet/Week 1/COST_ANALYSIS.md. Each panel is its own scale -- compare the % change within a panel,\n"
     "not bar heights across panels (the dollar range across tiers spans 100 users to 100,000 users).",
     "cost_at_scale_naive_vs_adjusted.png",
 )
@@ -168,12 +168,12 @@ small_multiples_cost_chart(
     "What If We Switched to Haiku? Monthly Cost by Scale",
     "Illustrative: applies the measured Sonnet-vs-Haiku cost ratio to each scale tier. Each panel is its own\n"
     "scale -- compare the % change within a panel, not bar heights across panels. Accuracy showed no regression\n"
-    "on our eval suite, but a full production switch should follow further manual review (agent/MODEL_TRADEOFF.md).",
+    "on our eval suite, but a full production switch should follow further manual review (Gauntlet/Week 1/MODEL_TRADEOFF.md).",
     "haiku_switch_cost_impact.png",
 )
 
 # ---------------------------------------------------------------------------
-# Chart 4: Load/stress test summary (agent/LOADTEST.md) -- latency vs. concurrency, and
+# Chart 4: Load/stress test summary (Gauntlet/Week 1/LOADTEST.md) -- latency vs. concurrency, and
 # reliability/resource headroom. Linear x-axis (concurrency only spans 1-200, no need for log
 # here) so the real "flat then rising" latency shape reads honestly.
 # ---------------------------------------------------------------------------
@@ -213,7 +213,7 @@ ax2.text(0.5, -0.24, "0% container-level errors, 1-200 users.\nNo CPU/memory bot
 
 fig.text(
     0.5, -0.08,
-    "Source: agent/LOADTEST.md. Latency is dominated by the LLM/tool-call round trip, not our infrastructure --\n"
+    "Source: Gauntlet/Week 1/LOADTEST.md. Latency is dominated by the LLM/tool-call round trip, not our infrastructure --\n"
     "CPU and memory stay well under capacity even at 200 users. One earlier run saw a transient 22% edge-layer\n"
     "(502) error rate at 50 users, not reproduced in later runs -- see LOADTEST.md for the full reconciliation.",
     ha="center", fontsize=9, color=GRAY, style="italic",
