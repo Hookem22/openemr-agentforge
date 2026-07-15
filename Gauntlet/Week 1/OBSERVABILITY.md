@@ -5,12 +5,12 @@ failure rate), each documented with meaning + on-call response. Approach: **Lang
 tracing already wired into every chat turn (`agent/app/graph.py`, decision in `ARCHITECTURE.md` Section 8)
 rather than standing up a separate metrics stack.
 
-I could not configure these directly: browser automation in this environment is domain-restricted and
-Langfuse Cloud isn't reachable from it (same restriction hit earlier on the Railway production domain), and
-account-level configuration on a third-party service is outside what I'll do without you driving it. Below
-are the exact definitions to enter in the Langfuse UI (Project Settings -> Alerts, or the Dashboards ->
-custom widget + threshold flow, depending on your Langfuse Cloud version) plus what each one means
-operationally.
+**Status: all 4 alerts below are configured and live in Langfuse Cloud.** I could not configure these
+directly — browser automation in this environment is domain-restricted and Langfuse Cloud isn't reachable
+from it (same restriction hit earlier on the Railway production domain), and account-level configuration
+on a third-party service is outside what I'll do without you driving it — so the user set these up
+directly in the Langfuse UI using the definitions below. Kept here as the source-of-truth reference for
+what each alert means and how to respond to it.
 
 ## Trace/span structure being alerted on
 
@@ -41,7 +41,7 @@ already serves as the dashboard — no separate widget-building was necessary be
 above against it, since every metric they reference (latency, error status, tool-call name/status, strip
 rate) is already emitted per-turn by the existing `@observe` instrumentation.
 
-## Setup steps (to run in the Langfuse UI)
+## Setup steps (done — run in the Langfuse UI by the user)
 
 1. Log into the Langfuse Cloud project already receiving `copilot-agent` traces.
 2. For each alert row above: create a new alert (Project Settings -> Alerts, or equivalent in your Langfuse
@@ -49,3 +49,5 @@ rate) is already emitted per-turn by the existing `@observe` instrumentation.
    (email/Slack/webhook).
 3. Send one real chat turn against the deployed agent to confirm a trace appears, then verify each alert's
    query returns the expected 0-hit baseline (no alert should currently be firing).
+
+**All 4 alerts above are set up and deployed.**

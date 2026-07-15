@@ -95,9 +95,9 @@ notes kept alongside the code:
   it can safely handle 50+ concurrent long-running turns.
 - **Dashboard + 3 alerts (p95 latency, error rate, tool failure rate)**: definitions written in
   `OBSERVABILITY.md` (plus a 4th, assignment-specific verification-strip-rate alert), each with meaning +
-  on-call response, built against the trace/span structure already wired into every turn. Configuring the
-  actual alerts in the Langfuse Cloud UI is a manual click-through step against the account (not something
-  automatable from this repo).
+  on-call response, built against the trace/span structure already wired into every turn. All 4 are now
+  configured and live in the Langfuse Cloud UI (a manual click-through step against the account, done by
+  the user).
 - **AI cost analysis**: done — `COST_ANALYSIS.md`. Actual dev spend pulled from Langfuse's per-trace cost
   data (123 traces, $2.63 total, ~$0.02/turn mean), plus projected cost at 100/1K/10K/100K users with the
   specific architectural changes needed at each tier (prompt caching, FHIR read caching, multi-tenant routing,
