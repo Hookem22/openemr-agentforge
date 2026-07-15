@@ -387,24 +387,36 @@ verification), deployed to Railway, and the two submission-day bugs above fixed 
 **Before Early Submission (Thursday 2026-07-16 @ 11:59PM) — reprioritized after grader feedback, the two
 gaps below now come first:**
 
-1. **Server-side CI** (grader-flagged gap #1). `railway-deploy` already points at a real GitHub repo
-   (`github.com/Hookem22/openemr-agentforge`), so GitHub Actions is the natural fit — no new hosting
-   needed. Concrete plan:
-   - A workflow running Tier 1 (`test_*_unit.py` + `test_*_integration.py`, ~132 tests) on every push and
-     PR. This tier needs zero secrets (no live Anthropic/Voyage/OpenEMR calls), so it's unconditionally
-     runnable server-side starting immediately — directly closes "runs automatically, not opt-in."
-   - The hard-gate rehearsal already proved Tier 1 alone catches the most dangerous regression class (a
-     disabled verifier) 100% deterministically — so server-side CI is meaningful protection even before
-     Tier 2 is wired in.
-   - Tier 2 (the 50-case golden set) needs `ANTHROPIC_API_KEY`/`VOYAGE_API_KEY` as GitHub Actions secrets
-     plus a reachable OpenEMR + fresh bearer token — harder to run per-PR (the token expires hourly, and
-     spinning up a seeded OpenEMR container in CI is nontrivial). Realistic near-term shape: keep Tier 2 on
-     the local pre-push hook (already real, already rehearsed) plus a **scheduled** GitHub Actions job
-     hitting the already-deployed Railway instance and running `run_eval_gate.py --push-to-langfuse`
-     (already built in Stage 5) — gives server-side coverage without solving "ephemeral OpenEMR in CI" as a
-     blocking prerequisite. Document this split explicitly rather than silently only doing Tier 1.
-   - The local pre-push hook stays as defense-in-depth for the fast tier, not the sole enforcement
-     mechanism it is today.
+1. **Server-side CI** (grader-flagged gap #1).
+   - [x] **Tier 1 — done and live-verified 2026-07-15**: `.github/workflows/agent-tier1.yml` runs the full
+     unit/integration suite (~132 tests, `run_eval_gate.py --tier1-only`, zero secrets needed) on every push
+     and PR against `railway-deploy`'s GitHub mirror (`github.com/Hookem22/openemr-agentforge`) — no new
+     hosting needed, since that remote already exists for Railway's git-connected deploy. Not just written
+     and assumed to work: pushed and confirmed via `gh run watch` — real execution on GitHub's runners, 81
+     tests passed in 43s (`gh run view --log` confirms genuine pytest output, not a trivial exit). Pushing
+     the workflow file itself required the git credential's `workflow` OAuth scope, which wasn't granted by
+     default — closed via a one-time `gh auth refresh --scopes workflow` device-code approval.
+   - [x] `run_eval_gate.py --tier1-only` added as the CI entry point — reuses the exact same
+     `run_tier1_suite()` the local pre-push hook and full gate both already call (one place that knows how
+     to run Tier 1), verified locally to exit 0 on the current passing state and exit 1 with the correct
+     failing test names when a deliberate verifier regression is reintroduced (same rehearsal technique as
+     the original hard-gate check).
+   - [ ] **Tier 2 — in progress**: the 50-case golden set is entirely read-only/stateless against OpenEMR by
+     design (extraction cases skip persistence, evidence-retrieval never touches OpenEMR, chat cases only
+     use read-only FHIR tools), so running it against the deployed instance on a schedule is safe. The
+     blocker is authentication: a scheduled job can't use password grant (dev-only, never production) or an
+     interactive OAuth consent. Plan: a **dedicated CI service-account OAuth2 client** (registered
+     2026-07-15, `application_type: private`, `redirect_uri: https://example.com/` so the one-time
+     authorization code is readable straight from the browser address bar rather than being swallowed by
+     the widget's own `callback.php`), consented once via a manual PKCE authorization_code flow, its
+     resulting **refresh_token** stored as a GitHub Actions secret so a scheduled workflow can mint a fresh
+     access token each run via the `refresh_token` grant (the same pattern `upload.php`/`proxy.php` already
+     use for session refresh) — never re-doing interactive consent. **Explicitly confirmed with the user
+     before enabling this client**: it's a standing, long-lived credential with document/procedure/
+     medication write scopes stored as a repo secret, a materially bigger commitment than a one-time login,
+     so it got its own explicit go-ahead rather than being bundled into the general "set up CI" approval.
+   - The local pre-push hook stays as defense-in-depth for the fast tier once Tier 2 is wired up, not the
+     sole enforcement mechanism it is today.
 
 2. **Extend cost/latency reporting to ingestion and retrieval** (grader-flagged gap #2, already
    self-identified before feedback arrived but not yet executed). Extend `Week 1/COST_ANALYSIS.md` and
