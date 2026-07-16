@@ -14,9 +14,16 @@ definitions to enter in the Langfuse UI, plus what's already emitted in code for
 |---|---|---|
 | `document_ingestion` | `agent/app/ingestion.py::upload_and_resolve_document` | `doc_type`, `byte_count`, `was_deduped` / error |
 | `extraction` (generation-type) | `agent/app/ingestion.py::extract_with_vision` | `doc_type`, `page_count`, token usage, `stop_reason`, `extracted` (bool), `field_count`/`mean_confidence`/`min_confidence` (aggregated from every extracted field's own confidence -- a plain float, never PHI; added 2026-07-16 to close the Engineering Requirements' "extraction confidence per document" gap, previously promised here but not actually emitted) |
-| `supervisor` (Section 9 calls this `worker_handoff` conceptually -- same span, actual code name is `supervisor`) | `agent/app/graph.py::supervisor_node` | `routed_to`, `reason` (a static heuristic label, never patient data) |
-| `intake_extractor` | `agent/app/graph.py::intake_extractor_node` | outcome (`success`, `fact_count`, `document_id`) |
-| `evidence_retriever` (Section 9 calls this `evidence_retrieval` conceptually -- same span, actual code name is `evidence_retriever`) | `agent/app/graph.py::evidence_retriever_node` | outcome (`success`, `result_count`) |
+| `supervisor` (Section 9 calls this `worker_handoff` conceptually -- same span, actual code name is `supervisor`) | `agent/app/graph.py::supervisor_node` | `routed_to`, `reason` (a static heuristic label, never patient data), `handoff_index` (metadata) |
+| `intake_extractor` | `agent/app/graph.py::intake_extractor_node` | outcome (`success`, `fact_count`, `document_id`), `handoff_index` (metadata) |
+| `evidence_retriever` (Section 9 calls this `evidence_retrieval` conceptually -- same span, actual code name is `evidence_retriever`) | `agent/app/graph.py::evidence_retriever_node` | outcome (`success`, `result_count`), `handoff_index` (metadata) |
+
+`handoff_index` (added 2026-07-16): the position of a supervisor decision in `handoff_log`. The
+supervisor span and whichever worker span it routed to share the same value, so a grader can group
+Langfuse spans by this field to reconstruct "supervisor decision #N routed to worker X" even though
+LangGraph invokes them as sibling steps, not one calling the other -- see `W2_ARCHITECTURE.md`
+Section 9's distributed-tracing note for the full reasoning on why they aren't literal parent/child
+OTel spans.
 
 `handoff_log` (every routing decision this turn, `{from, to, reason, timestamp}`) is also returned in
 the `/chat` API response body directly -- not just in Langfuse -- so a grader/on-call engineer can

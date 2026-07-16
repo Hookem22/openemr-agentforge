@@ -72,6 +72,7 @@ def test_intake_extractor_node_passes_state_correlation_id_to_attach_and_extract
         "correlation_id": "the-turns-correlation-id",
         "extracted_facts": [],
         "messages": [{"role": "user", "content": "upload this"}],
+        "handoff_log": [{"from": "supervisor", "to": "intake_extractor", "reason": "test", "timestamp": "now"}],
     }
 
     graph_module.intake_extractor_node(state)

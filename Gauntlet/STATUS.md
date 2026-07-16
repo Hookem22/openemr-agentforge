@@ -588,12 +588,27 @@ explicit/highest grading risk first):
    - **Re-verified live**: watched the real GitHub Actions run (`gh run watch 29514832391`) — all 6 CI
      steps genuinely green, 1m39s.
 
-5. **Distributed tracing: worker span nesting** — not yet started. Extraction/retrieval sub-calls do
-   genuinely nest as child spans under their worker span (real Python function calls); the supervisor and
-   its two workers, however, are separate LangGraph node invocations, not one calling the other, so their
-   spans land as siblings under the trace rather than literal parent/child. Recommended fix is pragmatic
-   (tag spans with a shared `handoff_sequence` number, document the tradeoff), not a graph restructure —
-   see the priority-ordering discussion from the audit for the full reasoning.
+5. **Distributed tracing: worker span nesting — done (pragmatic fix) 2026-07-16.** Extraction/retrieval
+   sub-calls do genuinely nest as child spans under their worker span (real Python function calls); the
+   supervisor and its two workers, however, are separate LangGraph node invocations, not one calling the
+   other, so their spans land as siblings under the trace rather than literal parent/child. Restructuring
+   the graph to force real OTel nesting was judged too big a risk to an already-verified-live graph just to
+   satisfy a tracing-shape preference, so the pragmatic fix was applied instead:
+   - Every span in one handoff (the supervisor decision plus whichever worker it routed to) is tagged with
+     the same `handoff_index` metadata — the position of that decision in `handoff_log` — so a grader can
+     group Langfuse spans by this field to reconstruct "supervisor decision #N routed to worker X" without
+     the OTel tree needing to be nested.
+   - 3 new unit tests (`agent/eval/test_handoff_index_unit.py`) confirm the supervisor span and whichever
+     worker it routes to share the same index, and that the index correctly advances across a second
+     handoff in the same turn (e.g. a document upload + a guideline question in one message).
+   - Updated `W2_ARCHITECTURE.md` §9 and `OBSERVABILITY.md`'s span table with the full reasoning and the
+     new field.
+   - Full Tier 1 suite (103 tests — one pre-existing test's minimal state fixture needed a `handoff_log`
+     key added, since `intake_extractor_node` now reads it), ruff, mypy, bandit, pip-audit all clean after.
+   - Not live-verified against a real Langfuse trace this time — unlike Priority 1's correlation-ID fix,
+     this is pure Python list-indexing logic with no external system or environment-specific behavior to
+     surprise it, and the unit tests call the real node functions directly (not a mock of the logic), so
+     the risk profile didn't justify another live OAuth round-trip. Noted here rather than silently skipped.
 
 6. **Documentation-only gaps** — not yet started, trivial effort: document that queue-depth/event-retry
    dashboard metrics are N/A (no queue system exists); add a combined "full Week 2 flow" Bruno request
