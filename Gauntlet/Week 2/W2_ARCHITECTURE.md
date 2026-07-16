@@ -248,11 +248,32 @@ a duplicate row instead of a no-op.
 ## 8. Correlation ID Propagation
 
 Week 1 had no end-to-end correlation ID (Langfuse's internal trace ID wasn't client-visible or propagated to
-PHP). Week 2 adds `correlation_id` (UUID, minted once per chat/ingestion request at `proxy.php`/`upload.php`)
-threaded through: the FastAPI request → every graph node's Langfuse span attributes → every VLM/retrieval
-call → every new OpenEMR write (passed as a request header, logged server-side alongside the existing
-`EventAuditLogger` entry). A grader can reconstruct a full Week 2 request — upload → extraction → worker
-handoffs → FHIR-visible writes — from the `correlation_id` alone, without needing raw PHI in any log.
+PHP). Week 2 adds `correlation_id` (a UUID minted once per chat request in `graph.py`'s `run_turn`, or once
+per standalone `/ingest` request in `main.py` -- these two entry points don't share a call path, so each
+mints its own) threaded through:
+- **Every graph node's Langfuse span/generation**, via `propagate_attributes(metadata={"correlation_id":
+  ...})` wrapping the whole turn -- this is what makes it reach every span (including nested extraction/
+  retrieval sub-calls, which inherit it automatically through Python's call stack, not by being passed
+  explicitly), not just the top-level trace.
+- **Every OpenEMR write call** (`persist_lab_results`, `persist_intake_facts`, the document upload/lookup
+  calls) as an `X-Correlation-Id` HTTP header, sent from `agent/app/ingestion.py` directly (these are
+  agent-to-OpenEMR REST calls, not proxied through `proxy.php`/`upload.php`, which only bridge the
+  browser-to-agent leg).
+- **Server-side, on the one write path this project owns** (`ProcedureRestController::postResultsFromDocument`):
+  the header is read and logged via `SystemLogger`. **Verified live**: a real request's correlation_id
+  appeared byte-for-byte in this log line. **Real caveat found by that same live test**: `SystemLogger`'s
+  `debug()` calls (matching this codebase's existing convention, e.g. `AuthorizationController`) are
+  silently dropped unless the `system_error_logging` global is `DEBUG` (default `WARNING`) -- confirmed by
+  grepping the Apache error log for the same correlation_id at both levels. Not a bug unique to this line,
+  but a real precondition for using it in incident response. The two *reused* stock endpoints (medication,
+  allergy) also receive the header for consistency but don't parse/log it server-side -- modifying core
+  OpenEMR controllers we didn't already touch this sprint was judged out of scope (same reasoning as the
+  new-write-path risk discussion in §12).
+
+A grader can reconstruct a full Week 2 request — upload → extraction → worker handoffs — from the
+`correlation_id` alone via Langfuse (filter any span/generation by `metadata.correlation_id`), and can
+additionally confirm the one owned OpenEMR write matches the same id via the server log (with
+`system_error_logging=DEBUG`), without needing raw PHI in any log.
 
 ## 9. Observability Extensions
 

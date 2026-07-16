@@ -319,7 +319,7 @@
     },
     "/ingest": {
       "post": {
-        "description": "The intake-extractor worker's HTTP entry point (W2_ARCHITECTURE.md Section 2). Called by\ninterface/modules/copilot/upload.php, same auth-bridge pattern as /chat.\n\n`patient_uuid` is only required for doc_type=intake_form -- see ingestion.persist_intake_facts\nfor why the allergy endpoint needs the FHIR uuid while everything else here uses the int pid.",
+        "description": "The intake-extractor worker's HTTP entry point (W2_ARCHITECTURE.md Section 2). Called by\ninterface/modules/copilot/upload.php, same auth-bridge pattern as /chat.\n\n`patient_uuid` is only required for doc_type=intake_form -- see ingestion.persist_intake_facts\nfor why the allergy endpoint needs the FHIR uuid while everything else here uses the int pid.\n\nThis route doesn't go through graph.py's run_turn, so it mints its own correlation_id (the\n/chat path mints one in run_turn and threads it in via state[\"correlation_id\"] instead) --\notherwise a document uploaded through this standalone endpoint would have no correlation_id at\nall, unlike the chat-embedded pending_document path.",
         "operationId": "ingest_ingest_post",
         "parameters": [
           {

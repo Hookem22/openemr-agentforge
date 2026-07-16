@@ -472,6 +472,67 @@ gaps below now come first:**
 
 **Early Submission checkpoint: fully closed.** All items above are complete.
 
+## Engineering Requirements self-audit (2026-07-16) and remediation plan
+
+A line-by-line audit against the assignment's "Engineering Requirements" section (distinct from the
+per-week deliverables above) found several requirements that `W2_ARCHITECTURE.md` described as done but
+the code didn't actually back up, plus a few genuinely missing pieces. Prioritized remediation plan (most
+explicit/highest grading risk first):
+
+1. **Correlation ID propagation — done and live-verified 2026-07-16.** Real gap found: `correlation_id` was
+   minted and returned in the `/chat` response, but was never attached to any Langfuse span/trace metadata
+   and never sent to any OpenEMR write call — the requirement ("a full multi-agent trace must be
+   reconstructable from the correlation ID alone") wasn't actually met despite `W2_ARCHITECTURE.md` §8
+   describing it as if it were. Fixed:
+   - `graph.py`'s `run_turn` now mints `correlation_id` *before* entering the `propagate_attributes(...)`
+     context and passes it as `metadata`, so every span in the trace (including nested extraction/retrieval
+     sub-calls, which inherit it automatically through the call stack) carries it — not just `handoff_log`.
+   - `main.py`'s standalone `/ingest` route (doesn't go through `run_turn`) mints its own and wraps the call
+     in the same `propagate_attributes` pattern, returning it in the response.
+   - `ingestion.py`: every OpenEMR write call (`persist_lab_results`, `persist_intake_facts`, the
+     upload/lookup calls) now sends `correlation_id` as an `X-Correlation-Id` header.
+   - `ProcedureRestController::postResultsFromDocument` (the one write path this project owns) reads the
+     header and logs it via `SystemLogger`. **Verified live**: uploaded a real fixture through `/ingest`,
+     confirmed the `correlation_id` in the JSON response matched byte-for-byte in the server log.
+   - **Real caveat found by that same live test, not assumed**: the log line is silently dropped at the
+     default `system_error_logging=WARNING` — `SystemLogger`'s `debug()` calls (this codebase's existing
+     convention) only surface with that global set to `DEBUG`. Confirmed by grepping the Apache error log
+     for the same correlation_id at both levels (0 matches at WARNING, 1 at DEBUG). Documented in
+     `W2_ARCHITECTURE.md` §8 rather than silently glossed over.
+   - 6 new unit tests (`agent/eval/test_correlation_id_unit.py`), no live API — header presence, default-id
+     generation, `run_turn`/`intake_extractor_node`/`/ingest` all correctly threading the id into
+     `propagate_attributes`/`attach_and_extract`. Full Tier 1 suite (87 tests) re-verified green after.
+   - **Known, explicitly scoped limitation**: the two *reused* stock OpenEMR endpoints (medication, allergy)
+     receive the header for consistency but don't parse/log it server-side — modifying OpenEMR core
+     controllers not already touched this sprint was judged out of scope, same reasoning as the new-write-
+     path risk discussion in `W2_ARCHITECTURE.md` §12.
+
+2. **CI: lint/typecheck, coverage, dependency audit, security scan** — not yet started. Add `ruff`, `mypy`
+   (or `pyright`), `pytest --cov`, `pip-audit`, and `bandit` to `.github/workflows/agent-tier1.yml` (every
+   push/PR, no secrets needed).
+
+3. **Retry logic on outbound LLM/retrieval/FHIR calls** — not yet started. Timeouts already exist on every
+   outbound call; add bounded `tenacity`-based retry (transient errors only) around the Anthropic/Voyage/
+   `httpx` call sites.
+
+4. **Extraction confidence surfaced as telemetry** — not yet started. Confidence exists per-field in the
+   extraction schema (for citations) but is never aggregated/logged as a span metric, despite being
+   explicitly named in the requirements ("extraction confidence per document").
+
+5. **Distributed tracing: worker span nesting** — not yet started. Extraction/retrieval sub-calls do
+   genuinely nest as child spans under their worker span (real Python function calls); the supervisor and
+   its two workers, however, are separate LangGraph node invocations, not one calling the other, so their
+   spans land as siblings under the trace rather than literal parent/child. Recommended fix is pragmatic
+   (tag spans with a shared `handoff_sequence` number, document the tradeoff), not a graph restructure —
+   see the priority-ordering discussion from the audit for the full reasoning.
+
+6. **Documentation-only gaps** — not yet started, trivial effort: document that queue-depth/event-retry
+   dashboard metrics are N/A (no queue system exists); add a combined "full Week 2 flow" Bruno request
+   chaining Ingest → Chat.
+
+7. **Week 2's 3 Langfuse alerts** — user action, not code; already fully defined in `Week 2/OBSERVABILITY.md`,
+   just need to be clicked into the Langfuse UI the same way Week 1's 4 already were.
+
 **Before Final (Sunday 2026-07-19 @ Noon):** Section 13's deliberately-deferred stretch items are the
 natural pool to draw from if there's time/appetite, roughly in order of likely grading value:
 - A critic agent that rejects uncited claims (the assignment explicitly calls this out as an extension

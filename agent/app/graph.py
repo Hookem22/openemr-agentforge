@@ -341,6 +341,7 @@ def intake_extractor_node(state: AgentState) -> AgentState:
             bearer_token=state["bearer_token"],
             mimetype=doc.get("mimetype", "application/pdf"),
             patient_uuid=state["patient_id"],
+            correlation_id=state["correlation_id"],
         )
         facts = _flatten_extracted_facts(result["extraction"], doc["doc_type"])
         state["extracted_facts"].extend(facts)
@@ -604,14 +605,20 @@ def run_turn(
     # prior_messages (full conversation) are all PHI/credentials -- capture_input/output=False
     # above stops @observe from auto-logging this function's args/return value. session_id uses a
     # salted hash of patient_id, not the raw FHIR UUID, so Langfuse never sees it.
-    with propagate_attributes(session_id=_hashed_session_id(patient_id)):
+    # W2_ARCHITECTURE.md Section 8: minted once per request, before entering the Langfuse context
+    # below so propagate_attributes' metadata (not just handoff_log) reaches every span in the
+    # trace -- including the trace root itself, which propagate_attributes also back-fills per its
+    # own docs ("sets attributes on the currently active span AND ... new child spans"). Threaded
+    # through to attach_and_extract too (intake_extractor_node) so it reaches the one OpenEMR write
+    # path this project owns as an X-Correlation-Id header, not just Langfuse.
+    correlation_id = uuid.uuid4().hex
+    with propagate_attributes(
+        session_id=_hashed_session_id(patient_id), metadata={"correlation_id": correlation_id}
+    ):
         prior_messages = _repair_round_tripped_tool_use_input(prior_messages or [])
         client = get_client()
         client.set_current_trace_io(input={"message_length": len(user_message)})
         messages = (prior_messages or []) + [{"role": "user", "content": user_message}]
-        # W2_ARCHITECTURE.md Section 8: minted once per request, threaded through every node/span
-        # via handoff_log entries and returned in the API response so a full turn is traceable.
-        correlation_id = uuid.uuid4().hex
         initial_state: AgentState = {
             "patient_id": patient_id,
             "bearer_token": bearer_token,

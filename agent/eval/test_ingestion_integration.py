@@ -109,7 +109,7 @@ def test_lab_pdf_pipeline_persists_with_the_stubbed_extraction(monkeypatch, stub
 
     persist_calls = []
 
-    def fake_persist(bearer_token, patient_id, document_id, extraction):
+    def fake_persist(bearer_token, patient_id, document_id, extraction, correlation_id):
         persist_calls.append((patient_id, document_id, extraction))
         return {"procedure_order_id": 99, "result_ids": [1]}
 
@@ -147,7 +147,7 @@ def test_intake_form_pipeline_persists_medications_and_allergies_separately(monk
 
     calls = []
 
-    def fake_persist(bearer_token, patient_id, patient_uuid, extraction):
+    def fake_persist(bearer_token, patient_id, patient_uuid, extraction, correlation_id):
         calls.append((patient_id, patient_uuid))
         return {"medications": [{"ok": True}], "allergies": [{"ok": True}]}
 

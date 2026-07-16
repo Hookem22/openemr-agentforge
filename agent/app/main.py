@@ -1,10 +1,11 @@
 import base64
 import time
+import uuid
 from typing import Literal
 
 import httpx
 from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
-from langfuse import get_client
+from langfuse import get_client, propagate_attributes
 from pydantic import BaseModel, field_validator
 
 from .config import settings
@@ -217,20 +218,28 @@ async def ingest(
     interface/modules/copilot/upload.php, same auth-bridge pattern as /chat.
 
     `patient_uuid` is only required for doc_type=intake_form -- see ingestion.persist_intake_facts
-    for why the allergy endpoint needs the FHIR uuid while everything else here uses the int pid."""
+    for why the allergy endpoint needs the FHIR uuid while everything else here uses the int pid.
+
+    This route doesn't go through graph.py's run_turn, so it mints its own correlation_id (the
+    /chat path mints one in run_turn and threads it in via state["correlation_id"] instead) --
+    otherwise a document uploaded through this standalone endpoint would have no correlation_id at
+    all, unlike the chat-embedded pending_document path."""
     bearer_token = _resolve_bearer_token(authorization)
     data = await file.read()
+    correlation_id = uuid.uuid4().hex
 
     try:
-        result = attach_and_extract(
-            patient_id=patient_id,
-            data=data,
-            filename=file.filename or "upload",
-            doc_type=doc_type,
-            bearer_token=bearer_token,
-            mimetype=file.content_type or "application/octet-stream",
-            patient_uuid=patient_uuid,
-        )
+        with propagate_attributes(metadata={"correlation_id": correlation_id}):
+            result = attach_and_extract(
+                patient_id=patient_id,
+                data=data,
+                filename=file.filename or "upload",
+                doc_type=doc_type,
+                bearer_token=bearer_token,
+                mimetype=file.content_type or "application/octet-stream",
+                patient_uuid=patient_uuid,
+                correlation_id=correlation_id,
+            )
     except IngestionError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except httpx.HTTPStatusError as exc:
