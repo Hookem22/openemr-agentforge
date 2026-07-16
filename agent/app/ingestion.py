@@ -266,7 +266,9 @@ def extract_with_vision(doc_type: DocType, page_images: list[bytes], document_id
     and the returned extraction dict are real PHI -- capture_input/output=False excludes both from
     auto-capture; only doc_type, page count, and token usage (never PHI) are sent manually below."""
     tool = EXTRACTION_TOOL_BY_DOC_TYPE[doc_type]
-    content = [
+    # Explicit annotation: without it, mypy infers dict[str, str] from the first (text-only) entry
+    # and then rejects the image entry's nested "source" dict below.
+    content: list[dict[str, object]] = [
         {"type": "text", "text": f"source document id: {document_id}. Extract every field you can read."}
     ]
     for image_bytes in page_images:
@@ -278,7 +280,10 @@ def extract_with_vision(doc_type: DocType, page_images: list[bytes], document_id
         )
 
     client = _anthropic_client()
-    response = client.messages.create(
+    # Tool schemas and message content are built as plain dicts (matching the tool-schema literals
+    # above), not the SDK's exact nested TypedDicts -- mypy can't verify the overload match, but the
+    # shapes are exercised extensively by test_ingestion_integration.py and live testing.
+    response = client.messages.create(  # type: ignore[call-overload]
         model=settings.anthropic_model,
         max_tokens=4096,
         tools=[tool],
@@ -449,7 +454,7 @@ def attach_and_extract(
     except ValidationError as exc:
         raise IngestionError(f"extraction failed schema validation: {exc}") from exc
 
-    if doc_type == "lab_pdf":
+    if isinstance(extraction, LabPdfExtraction):
         persistence = persist_lab_results(bearer_token, patient_id, document_id, extraction, correlation_id)
     else:
         if not patient_uuid:

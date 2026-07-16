@@ -6,6 +6,7 @@ node_modules/
 agent/.env
 agent/venv/
 agent/**/__pycache__/
+agent/.coverage
 # Rebuildable Voyage embedding cache for the Week 2 guideline corpus (agent/app/rag.py) -- derived
 # from agent/data/guidelines/*.md, regenerated automatically on first run after a corpus change.
 agent/data/guidelines_index_cache.json

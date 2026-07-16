@@ -196,7 +196,7 @@ def _latest_user_text(state: AgentState) -> str | None:
         content = message.get("content")
         if isinstance(content, str):
             return content
-        for block in content:
+        for block in content or []:
             if isinstance(block, dict) and block.get("type") == "text":
                 return block["text"]
         return None
@@ -327,6 +327,14 @@ def intake_extractor_node(state: AgentState) -> AgentState:
     # capture_input/output=False above stops @observe from auto-logging either. Only an outcome
     # summary (counts/success flag) is sent manually below.
     doc = state["pending_document"]
+    if doc is None:
+        # Not reachable via _route_decision (only routes here when pending_document is set), but
+        # an explicit raise -- not assert -- so this invariant still holds under -O (assertions are
+        # stripped by Python's optimizer; this guard is not).
+        raise RuntimeError("intake_extractor_node called with no pending_document")
+    patient_pid = state["patient_pid"]
+    if patient_pid is None:
+        raise RuntimeError("intake_extractor_node called with no patient_pid (must be set alongside pending_document)")
     try:
         # attach_and_extract's `patient_id` is the OpenEMR-native int pid (document/medication
         # endpoints); its `patient_uuid` is the FHIR uuid (allergy endpoint only) -- the *opposite*
@@ -334,7 +342,7 @@ def intake_extractor_node(state: AgentState) -> AgentState:
         # (see fhir_client.py/tools.py). `patient_pid` is the new field carrying the native int pid
         # specifically for this call.
         result = attach_and_extract(
-            patient_id=state["patient_pid"],
+            patient_id=patient_pid,
             data=doc["data"],
             filename=doc["filename"],
             doc_type=doc["doc_type"],
@@ -363,6 +371,7 @@ def evidence_retriever_node(state: AgentState) -> AgentState:
     # but are still excluded from auto-capture for consistency with every other node's pattern --
     # only a result count is sent manually below.
     query = _latest_user_text(state) or ""
+    outcome: dict[str, object]
     try:
         results = retrieve(query)
         outcome = {"success": True, "result_count": len(results)}
@@ -384,12 +393,14 @@ def evidence_retriever_node(state: AgentState) -> AgentState:
 @observe(as_type="generation", name="agent_llm_call", capture_input=False, capture_output=False)
 def agent_node(state: AgentState) -> AgentState:
     client = _anthropic_client()
+    # Tool schemas and messages are plain dicts, not the SDK's exact nested TypedDicts -- same
+    # tradeoff as ingestion.py's extract_with_vision, see that comment for the reasoning.
     response = client.messages.create(
         model=settings.anthropic_model,
         max_tokens=2048,
         system=SYSTEM_PROMPT,
-        tools=TOOL_SCHEMAS + [PROVIDE_ANSWER_TOOL],
-        messages=state["messages"],
+        tools=TOOL_SCHEMAS + [PROVIDE_ANSWER_TOOL],  # type: ignore[arg-type]
+        messages=state["messages"],  # type: ignore[arg-type]
     )
     assistant_content = response.model_dump()["content"]
     # Redacted: no message text/content (PHI) sent to Langfuse -- only counts and tool names, which

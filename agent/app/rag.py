@@ -117,9 +117,12 @@ def _load_or_build_embeddings(chunks: list[_Chunk]) -> list[list[float]]:
         except (json.JSONDecodeError, KeyError):
             pass  # corrupt/stale cache -- fall through and rebuild
 
-    embeddings = _voyage_client().embed(
+    raw_embeddings = _voyage_client().embed(
         [c.text for c in chunks], model=settings.voyage_embed_model, input_type="document"
     ).embeddings
+    # Voyage's SDK types this as list[list[float]] | list[list[int]] -- coerce explicitly so the
+    # cosine-similarity math downstream always gets real floats, not just to satisfy mypy.
+    embeddings: list[list[float]] = [[float(x) for x in emb] for emb in raw_embeddings]
     os.makedirs(os.path.dirname(INDEX_CACHE_PATH), exist_ok=True)
     with open(INDEX_CACHE_PATH, "w", encoding="utf-8") as f:
         json.dump({"content_hash": content_hash, "embeddings": embeddings}, f)
@@ -204,7 +207,8 @@ def retrieve(query: str, top_k: int = 5, candidate_pool: int = 10) -> list[Guide
     bm25_ranking = sorted(range(len(chunks)), key=lambda i: bm25_scores[i], reverse=True)[:candidate_pool]
 
     client = _voyage_client()
-    query_embedding = client.embed([query], model=settings.voyage_embed_model, input_type="query").embeddings[0]
+    raw_query_embedding = client.embed([query], model=settings.voyage_embed_model, input_type="query").embeddings[0]
+    query_embedding: list[float] = [float(x) for x in raw_query_embedding]
     dense_scores = [_cosine_similarity(query_embedding, emb) for emb in embeddings]
     dense_ranking = sorted(range(len(chunks)), key=lambda i: dense_scores[i], reverse=True)[:candidate_pool]
 

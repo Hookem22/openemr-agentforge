@@ -9,6 +9,7 @@ carries `resource_type` + `id` + `date` -- these three fields are exactly what t
 from __future__ import annotations
 
 import re
+from typing import Callable
 
 from .fhir_client import FhirClient
 
@@ -289,7 +290,9 @@ TOOL_SCHEMAS = [
     },
 ]
 
-TOOL_FUNCTIONS = {
+# Each function's kwargs differ (e.g. get_recent_encounters(count=...) vs get_patient() with none),
+# so this is genuinely a heterogeneous dict of callables, not one uniform signature.
+TOOL_FUNCTIONS: dict[str, Callable[..., object]] = {
     "get_patient": get_patient,
     "get_recent_encounters": get_recent_encounters,
     "get_conditions": get_conditions,

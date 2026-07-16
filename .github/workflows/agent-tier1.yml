@@ -37,5 +37,28 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements-dev.txt
 
+      # Engineering Requirements: "CI pipeline: build, lint/typecheck, tests, coverage, dependency
+      # audit, security scan." Cheapest/fastest checks first so a bad PR fails in seconds, not
+      # minutes -- same fail-fast philosophy run_eval_gate.py already uses (deterministic tests
+      # before the costlier golden set).
+      - name: Lint (ruff)
+        run: ruff check app/ eval/
+
+      - name: Typecheck (mypy)
+        run: mypy app/
+
+      - name: Dependency audit (pip-audit)
+        run: pip-audit -r requirements.txt
+
+      - name: Security scan (bandit)
+        run: bandit -r app/
+
       - name: Run Tier 1 (unit + integration) suite
         run: python eval/run_eval_gate.py --tier1-only
+
+      # Coverage is reported, not gated on a hard threshold: app/tools.py's low coverage here is
+      # architectural, not a gap -- its FHIR-calling functions need a live OpenEMR instance to
+      # meaningfully exercise, which is exactly what Tier 1 (by design, zero secrets/live API) can't
+      # do; they're covered by Week 1's live-server test suite and the Tier 2 golden set instead.
+      - name: Coverage report
+        run: python -m pytest --cov=app --cov-report=term-missing $(ls eval/test_*_unit.py eval/test_*_integration.py)

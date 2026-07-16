@@ -2,3 +2,10 @@
 # requirements.txt and copies app/, not eval/). Keeps the deployed agent's dependency surface lean.
 -r requirements.txt
 pytest>=8
+# Engineering Requirements: "CI pipeline: build, lint/typecheck, tests, coverage, dependency audit,
+# security scan." Added to agent-tier1.yml (every push/PR, no secrets needed).
+pytest-cov>=5
+ruff>=0.6
+mypy>=1.11
+pip-audit>=2.7
+bandit>=1.7

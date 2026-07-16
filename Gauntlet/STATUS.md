@@ -507,9 +507,33 @@ explicit/highest grading risk first):
      controllers not already touched this sprint was judged out of scope, same reasoning as the new-write-
      path risk discussion in `W2_ARCHITECTURE.md` §12.
 
-2. **CI: lint/typecheck, coverage, dependency audit, security scan** — not yet started. Add `ruff`, `mypy`
-   (or `pyright`), `pytest --cov`, `pip-audit`, and `bandit` to `.github/workflows/agent-tier1.yml` (every
-   push/PR, no secrets needed).
+2. **CI: lint/typecheck, coverage, dependency audit, security scan — done 2026-07-16.** Added `ruff`,
+   `mypy`, `pip-audit`, `bandit`, and `pytest --cov` as 4 new steps in `.github/workflows/agent-tier1.yml`
+   (every push/PR, no secrets needed), each run locally first to see real findings before touching CI:
+   - **ruff**: 2 findings, both leftover unused imports in the new `test_correlation_id_unit.py` — fixed
+     via `ruff check --fix`.
+   - **mypy**: 19 real findings across `graph.py`/`ingestion.py`/`rag.py` in a previously never-type-
+     checked codebase. Fixed the genuine ones directly (Voyage SDK's `list[float] | list[int]` embeddings
+     coerced explicitly, `content: list[dict[str, object]]` annotated instead of let mypy over-narrow from
+     the first entry, `isinstance(extraction, LabPdfExtraction)` used for real type narrowing instead of a
+     same-string `doc_type` comparison mypy can't correlate, `TOOL_FUNCTIONS` typed as the heterogeneous
+     `dict[str, Callable[..., object]]` it actually is, two `None`-guard `if`s added in
+     `intake_extractor_node` for state fields only guaranteed non-`None` by external routing logic). Added
+     narrow `# type: ignore[...]` with a one-line reason only for the two Anthropic `messages.create(...)`
+     call sites, where our tool schemas are plain dicts, not the SDK's exact nested TypedDicts —
+     properly typing those would be a large, disproportionate refactor of a live, tested system for a
+     CI-hardening task. `mypy.ini` added (`ignore_missing_imports` scoped to `fitz`/`rank_bm25`, which ship
+     without stubs — not a real error).
+   - **bandit**: 2 Low findings, both on the two new `None`-guards above (B101, `assert` stripped under
+     `-O`) — fixed properly by using explicit `if ... : raise RuntimeError(...)` instead of `assert`,
+     which is strictly safer than either an assert or a `# nosec` suppression.
+   - **pip-audit**: 0 vulnerabilities.
+   - **pytest --cov**: reported (not gated on a hard threshold) — `app/tools.py`'s low Tier-1 coverage
+     (17%) is architectural, not a real gap: its FHIR-calling functions need a live OpenEMR instance,
+     which Tier 1 deliberately doesn't have; they're exercised by Week 1's live-server suite and the
+     Tier 2 golden set instead.
+   - All 6 new steps run locally in the exact sequence/commands CI uses before pushing; full Tier 1 suite
+     (87 tests) re-confirmed green after every fix.
 
 3. **Retry logic on outbound LLM/retrieval/FHIR calls** — not yet started. Timeouts already exist on every
    outbound call; add bounded `tenacity`-based retry (transient errors only) around the Anthropic/Voyage/

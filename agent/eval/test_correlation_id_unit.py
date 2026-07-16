@@ -10,8 +10,6 @@ from __future__ import annotations
 from contextlib import nullcontext
 from types import SimpleNamespace
 
-import httpx
-import pytest
 from fastapi.testclient import TestClient
 
 from app import graph as graph_module
