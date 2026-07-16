@@ -534,6 +534,8 @@ explicit/highest grading risk first):
      Tier 2 golden set instead.
    - All 6 new steps run locally in the exact sequence/commands CI uses before pushing; full Tier 1 suite
      (87 tests) re-confirmed green after every fix.
+   - **Re-verified live, not just pushed and assumed**: watched the real run on GitHub's runners (`gh run
+     watch 29505800227`) — all 6 new steps plus the existing test step passed genuinely, 1m40s total.
 
 3. **Retry logic on outbound LLM/retrieval/FHIR calls** — not yet started. Timeouts already exist on every
    outbound call; add bounded `tenacity`-based retry (transient errors only) around the Anthropic/Voyage/
