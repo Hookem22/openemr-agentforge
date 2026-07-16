@@ -637,6 +637,8 @@ explicit/highest grading risk first):
      `agent`), 3 verified claims, 1 stripped, real `correlation_id`. 2 new regression tests
      (`agent/eval/test_intake_extractor_error_handling_unit.py`).
    - Full Tier 1 suite (105 tests), ruff, mypy, bandit, pip-audit all clean after.
+   - **Re-verified live**: watched the real GitHub Actions run (`gh run watch 29518235581`) — all 6 CI
+     steps genuinely green, 1m38s.
 
 7. **Week 2's 3 Langfuse alerts** — user action, not code; already fully defined in `Week 2/OBSERVABILITY.md`,
    just need to be clicked into the Langfuse UI the same way Week 1's 4 already were.
