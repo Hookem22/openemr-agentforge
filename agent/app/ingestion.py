@@ -267,6 +267,32 @@ def _anthropic_client() -> Anthropic:
     return Anthropic(api_key=settings.anthropic_api_key)
 
 
+def _collect_confidences(raw_extraction: dict, doc_type: DocType) -> list[float]:
+    """Walks the raw (pre-validation) extraction dict and pulls every field's `confidence` value,
+    for the extraction-confidence-per-document metric (W2_ARCHITECTURE.md Section 9 /
+    Engineering Requirements). Defensive, not schema-trusting: a malformed or missing confidence
+    from Claude should degrade this telemetry, not crash it -- schema validation in
+    `attach_and_extract` is the real safety net for malformed extractions, not this."""
+    values: list[float] = []
+
+    def _add(entry: object) -> None:
+        if isinstance(entry, dict):
+            confidence = entry.get("confidence")
+            if isinstance(confidence, (int, float)):
+                values.append(float(confidence))
+
+    if doc_type == "lab_pdf":
+        for result in raw_extraction.get("results") or []:
+            _add(result)
+    else:
+        _add(raw_extraction.get("demographics"))
+        _add(raw_extraction.get("chief_concern"))
+        for key in ("current_medications", "allergies", "family_history"):
+            for entry in raw_extraction.get(key) or []:
+                _add(entry)
+    return values
+
+
 @observe(as_type="generation", name="extraction", capture_input=False, capture_output=False)
 def extract_with_vision(doc_type: DocType, page_images: list[bytes], document_id: int) -> dict:
     """Forces Claude to call the doc-type-matched extraction tool over the page images, and
@@ -308,8 +334,20 @@ def extract_with_vision(doc_type: DocType, page_images: list[bytes], document_id
     )
     for block in response.model_dump()["content"]:
         if block.get("type") == "tool_use":
-            get_client().update_current_generation(output={"stop_reason": response.stop_reason, "extracted": True})
-            return block["input"]
+            raw_extraction = block["input"]
+            # Confidence values themselves are never PHI (a float, not a clinical value) -- safe to
+            # log directly, unlike the extraction content around them.
+            confidences = _collect_confidences(raw_extraction, doc_type)
+            get_client().update_current_generation(
+                output={
+                    "stop_reason": response.stop_reason,
+                    "extracted": True,
+                    "field_count": len(confidences),
+                    "mean_confidence": (sum(confidences) / len(confidences)) if confidences else None,
+                    "min_confidence": min(confidences) if confidences else None,
+                }
+            )
+            return raw_extraction
     get_client().update_current_generation(output={"stop_reason": response.stop_reason, "extracted": False}, level="ERROR")
     raise IngestionError("Claude did not call the forced extraction tool")
 

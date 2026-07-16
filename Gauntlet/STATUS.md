@@ -568,9 +568,23 @@ explicit/highest grading risk first):
    - **Re-verified live**: watched the real GitHub Actions run (`gh run watch 29510790805`) — all 6
      CI steps genuinely green, 1m35s.
 
-4. **Extraction confidence surfaced as telemetry** — not yet started. Confidence exists per-field in the
-   extraction schema (for citations) but is never aggregated/logged as a span metric, despite being
-   explicitly named in the requirements ("extraction confidence per document").
+4. **Extraction confidence surfaced as telemetry — done 2026-07-16.** Confidence existed per-field in the
+   extraction schema (for citations) but was never aggregated/logged as a span metric, despite being
+   explicitly named in the requirements ("extraction confidence per document"). Fixed:
+   - New `_collect_confidences(raw_extraction, doc_type)` in `agent/app/ingestion.py` walks the raw
+     (pre-validation) extraction dict for both doc types and pulls every field's `confidence`, defensively
+     (a missing/malformed value is skipped, not a crash — schema validation in `attach_and_extract` is the
+     real safety net for a bad extraction, not this).
+   - `extract_with_vision`'s `extraction` span now logs `field_count`, `mean_confidence`, `min_confidence`
+     alongside its existing `stop_reason`/`extracted` output — a plain float, never PHI, safe to log as-is.
+   - 6 new unit tests (`agent/eval/test_extraction_confidence_unit.py`) cover both doc types, malformed/
+     missing confidence values, and the zero-field edge case (must log `None`, not divide by zero).
+   - **Re-verified live** against a real Claude vision call (no OpenEMR/bearer token needed for this
+     function specifically): 5 real confidence values correctly collected from Maria Gonzalez's lab PDF
+     fixture.
+   - Updated `W2_ARCHITECTURE.md` §9 and `OBSERVABILITY.md`'s span table, which previously promised this
+     metric without it actually existing.
+   - Full Tier 1 suite (100 tests), ruff, mypy, bandit, pip-audit all clean after.
 
 5. **Distributed tracing: worker span nesting** — not yet started. Extraction/retrieval sub-calls do
    genuinely nest as child spans under their worker span (real Python function calls); the supervisor and

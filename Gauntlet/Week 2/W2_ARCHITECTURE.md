@@ -286,9 +286,11 @@ additionally confirm the one owned OpenEMR write matches the same id via the ser
 - **New /ready checks**: document storage (OpenEMR reachability), local vector index (loaded/present), Voyage
   API reachability — `/ready` returns **degraded**, not a binary down, if any one dependency is unavailable
   but the core FHIR chat flow still works.
-- **Dashboard additions**: document ingestion count, extraction field-level pass rate, retrieval hit rate,
-  worker routing decision breakdown, eval pass/fail rate per rubric category — added to the existing Langfuse
-  Cloud trace/observation explorer (`OBSERVABILITY.md`), no new dashboard tool needed.
+- **Dashboard additions**: document ingestion count, extraction field-level pass rate, **extraction
+  confidence per document** (mean/min, aggregated from every field's own confidence — `extraction` span
+  metadata, `agent/app/ingestion.py::extract_with_vision`), retrieval hit rate, worker routing decision
+  breakdown, eval pass/fail rate per rubric category — added to the existing Langfuse Cloud trace/
+  observation explorer (`OBSERVABILITY.md`), no new dashboard tool needed.
 
 ## 10. Failure Modes & Incident Response
 

@@ -13,7 +13,7 @@ definitions to enter in the Langfuse UI, plus what's already emitted in code for
 | Span (actual name in code) | Where | What it carries |
 |---|---|---|
 | `document_ingestion` | `agent/app/ingestion.py::upload_and_resolve_document` | `doc_type`, `byte_count`, `was_deduped` / error |
-| `extraction` (generation-type) | `agent/app/ingestion.py::extract_with_vision` | `doc_type`, `page_count`, token usage, `stop_reason`, `extracted` (bool) |
+| `extraction` (generation-type) | `agent/app/ingestion.py::extract_with_vision` | `doc_type`, `page_count`, token usage, `stop_reason`, `extracted` (bool), `field_count`/`mean_confidence`/`min_confidence` (aggregated from every extracted field's own confidence -- a plain float, never PHI; added 2026-07-16 to close the Engineering Requirements' "extraction confidence per document" gap, previously promised here but not actually emitted) |
 | `supervisor` (Section 9 calls this `worker_handoff` conceptually -- same span, actual code name is `supervisor`) | `agent/app/graph.py::supervisor_node` | `routed_to`, `reason` (a static heuristic label, never patient data) |
 | `intake_extractor` | `agent/app/graph.py::intake_extractor_node` | outcome (`success`, `fact_count`, `document_id`) |
 | `evidence_retriever` (Section 9 calls this `evidence_retrieval` conceptually -- same span, actual code name is `evidence_retriever`) | `agent/app/graph.py::evidence_retriever_node` | outcome (`success`, `result_count`) |
