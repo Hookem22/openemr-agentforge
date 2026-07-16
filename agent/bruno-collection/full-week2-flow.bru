@@ -1,0 +1,52 @@
+meta {
+  name: Full Week 2 Flow
+  type: http
+  seq: 5
+}
+
+post {
+  url: {{base_url}}/chat
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{bearer_token}}
+}
+
+body:json {
+  {
+    "patient_id": "{{james_patient_id}}",
+    "patient_pid": "{{james_patient_pid}}",
+    "message": "Given these lab results, what does the guideline recommend for follow-up?",
+    "conversation_history": [],
+    "pending_document": {
+      "data_base64": "{{james_lab_pdf_base64}}",
+      "filename": "james_whitfield_lab.pdf",
+      "doc_type": "lab_pdf"
+    }
+  }
+}
+
+docs {
+  The single-request demonstration of the full Week 2 multi-worker graph, not just one worker in
+  isolation: a document upload and a guideline-style question in the same turn drive the supervisor
+  through BOTH workers before finalizing -- supervisor -> intake_extractor (extracts + persists the
+  lab PDF) -> supervisor -> evidence_retriever (guideline question is present) -> supervisor -> agent
+  (finalize, citing both the just-extracted lab values and the retrieved guideline text) -> verify.
+
+  Uses James Whitfield (the dedicated empty-chart seeded patient, W2_ARCHITECTURE.md/USER.md) so the
+  response's claims are cleanly attributable to what this one request produced, not pre-existing
+  chart data. The fixture PDF's bytes are pre-encoded as `james_lab_pdf_base64` in the local
+  environment (Bruno's script sandbox is a restricted QuickJS runtime with no filesystem access --
+  confirmed by testing a pre-request fs.readFileSync script, which fails with "Cannot find module
+  fs" -- so a pre-request script can't read eval/fixtures/*.pdf itself the way `Ingest`'s multipart
+  `@file(...)` does; a fixed pre-encoded fixture is the reliable alternative for a JSON-body request).
+
+  Response's `handoff_log` shows the full routing sequence (grep for `"to": "intake_extractor"` and
+  `"to": "evidence_retriever"` both present, in that order); `correlation_id`
+  (W2_ARCHITECTURE.md Section 8) ties every span in both handoffs together in Langfuse via
+  `metadata.correlation_id`, and each handoff's supervisor + worker spans additionally share the same
+  `metadata.handoff_index` (Section 9's distributed-tracing note) even though they aren't nested as
+  literal parent/child spans.
+}

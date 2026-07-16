@@ -612,9 +612,31 @@ explicit/highest grading risk first):
    - **Re-verified live**: watched the real GitHub Actions run (`gh run watch 29516256776`) — all 6 CI
      steps genuinely green, 1m37s.
 
-6. **Documentation-only gaps** — not yet started, trivial effort: document that queue-depth/event-retry
-   dashboard metrics are N/A (no queue system exists); add a combined "full Week 2 flow" Bruno request
-   chaining Ingest → Chat.
+6. **Documentation-only gaps — done 2026-07-16**, plus a real bug found along the way:
+   - Added an explicit N/A note to `W2_ARCHITECTURE.md` §9: queue depth / event retries genuinely don't
+     apply (no queue or async job system exists — every request is synchronous, request-in/response-out),
+     documented rather than fabricating a metric with nothing behind it.
+   - Added `agent/bruno-collection/full-week2-flow.bru` — a single `/chat` request (not a chained
+     Ingest→Chat sequence) driving **both** workers in one turn: James Whitfield's fixture lab PDF as a
+     chat-embedded `pending_document` plus a guideline-triggering question, so the supervisor genuinely
+     routes through `intake_extractor` → `evidence_retriever` → `agent` in one call — a more complete
+     single-request demonstration of the multi-worker graph than a two-step sequence would be.
+   - **Real finding building it**: Bruno's script sandbox (via the CLI) is a restricted QuickJS runtime
+     with no `fs`/`path` access — confirmed by testing a pre-request file-read script directly (`Error:
+     Cannot find module fs`), not assumed — so the fixture PDF is pre-encoded once as a
+     `james_lab_pdf_base64` environment variable instead of read live like `Ingest`'s multipart `@file(...)`.
+   - **Real bug found and fixed via actually running this new request live**: the first live run hit a raw
+     500, not the expected graceful degradation. Root cause: `intake_extractor_node`'s except clause only
+     caught `IngestionError`, so an upstream OpenEMR HTTP failure inside `attach_and_extract` (this run's
+     dummy token produced a real 401) raised as an uncaught `httpx.HTTPStatusError`, crashing the *entire*
+     chat turn — the same bug class `main.py`'s standalone `/ingest` route already had fixed, but the
+     chat-embedded `pending_document` path didn't. Fixed by also catching `httpx.HTTPError` there, same
+     graceful "processing failed" degradation pattern already used for `IngestionError`. **Re-verified
+     live**: same request, same dummy token, now returns 200 with the extraction degraded but the turn
+     still completing — `handoff_log` shows all 3 hops (`intake_extractor` → `evidence_retriever` →
+     `agent`), 3 verified claims, 1 stripped, real `correlation_id`. 2 new regression tests
+     (`agent/eval/test_intake_extractor_error_handling_unit.py`).
+   - Full Tier 1 suite (105 tests), ruff, mypy, bandit, pip-audit all clean after.
 
 7. **Week 2's 3 Langfuse alerts** — user action, not code; already fully defined in `Week 2/OBSERVABILITY.md`,
    just need to be clicked into the Langfuse UI the same way Week 1's 4 already were.

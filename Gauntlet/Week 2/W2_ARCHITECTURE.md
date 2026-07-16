@@ -304,6 +304,14 @@ additionally confirm the one owned OpenEMR write matches the same id via the ser
   metadata, `agent/app/ingestion.py::extract_with_vision`), retrieval hit rate, worker routing decision
   breakdown, eval pass/fail rate per rubric category — added to the existing Langfuse Cloud trace/
   observation explorer (`OBSERVABILITY.md`), no new dashboard tool needed.
+- **Queue depth / event retries — not applicable, by design, not an oversight**: the Engineering
+  Requirements' generic dashboard list includes "queue depth, event retries" as example metrics, but this
+  service has no queue or async job system anywhere — every request (`/chat`, `/ingest`) is handled
+  synchronously, request-in/response-out, including document extraction and evidence retrieval. There is
+  no backlog to have a depth, and (per `agent/app/retry.py`'s module docstring) the retries that do exist
+  are inline, in-request retries on individual HTTP calls, not queued job retries — a different concept
+  the "event retries" phrasing implies. Documented explicitly rather than fabricating a metric with
+  nothing behind it.
 
 ## 10. Failure Modes & Incident Response
 

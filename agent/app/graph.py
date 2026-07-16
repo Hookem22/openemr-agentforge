@@ -370,7 +370,13 @@ def intake_extractor_node(state: AgentState) -> AgentState:
         state["extracted_facts"].extend(facts)
         context_message = _facts_to_context_message(facts, "Extracted from uploaded document")
         outcome = {"success": True, "fact_count": len(facts), "document_id": result["document_id"]}
-    except IngestionError as exc:
+    except (IngestionError, httpx.HTTPError) as exc:
+        # Real bug found live (2026-07-16, via the new Full Week 2 Flow Bruno request): this except
+        # clause originally only caught IngestionError, so an upstream OpenEMR HTTP failure inside
+        # attach_and_extract (401/5xx/timeout -- httpx.HTTPStatusError/HTTPError, not IngestionError)
+        # propagated uncaught through the whole LangGraph invoke, crashing the *entire* chat turn
+        # with a raw 500 instead of degrading just this worker's outcome -- the same bug class
+        # main.py's standalone /ingest route already had fixed, but this chat-embedded path didn't.
         context_message = f"[Extracted from uploaded document: processing failed -- {exc}]"
         outcome = {"success": False}
 
