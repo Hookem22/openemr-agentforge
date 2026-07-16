@@ -585,6 +585,8 @@ explicit/highest grading risk first):
    - Updated `W2_ARCHITECTURE.md` §9 and `OBSERVABILITY.md`'s span table, which previously promised this
      metric without it actually existing.
    - Full Tier 1 suite (100 tests), ruff, mypy, bandit, pip-audit all clean after.
+   - **Re-verified live**: watched the real GitHub Actions run (`gh run watch 29514832391`) — all 6 CI
+     steps genuinely green, 1m39s.
 
 5. **Distributed tracing: worker span nesting** — not yet started. Extraction/retrieval sub-calls do
    genuinely nest as child spans under their worker span (real Python function calls); the supervisor and
