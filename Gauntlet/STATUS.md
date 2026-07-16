@@ -609,6 +609,8 @@ explicit/highest grading risk first):
      this is pure Python list-indexing logic with no external system or environment-specific behavior to
      surprise it, and the unit tests call the real node functions directly (not a mock of the logic), so
      the risk profile didn't justify another live OAuth round-trip. Noted here rather than silently skipped.
+   - **Re-verified live**: watched the real GitHub Actions run (`gh run watch 29516256776`) — all 6 CI
+     steps genuinely green, 1m37s.
 
 6. **Documentation-only gaps** — not yet started, trivial effort: document that queue-depth/event-retry
    dashboard metrics are N/A (no queue system exists); add a combined "full Week 2 flow" Bruno request
