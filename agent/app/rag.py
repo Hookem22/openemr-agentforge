@@ -103,7 +103,12 @@ def _corpus_hash(chunks: list[_Chunk]) -> str:
 def _voyage_client() -> voyageai.Client:
     if not settings.voyage_api_key:
         raise RuntimeError("VOYAGE_API_KEY is not set")
-    return voyageai.Client(api_key=settings.voyage_api_key)
+    # Unlike the Anthropic SDK, Voyage's max_retries defaults to 0 (off) -- real gap found while
+    # auditing outbound-call retry logic. The SDK already has the right retry policy built in
+    # (tenacity-based, retries only RateLimitError/ServiceUnavailableError/Timeout -- confirmed via
+    # its source), it just needs enabling. See app/retry.py's module docstring for the full
+    # comparison with Anthropic's client.
+    return voyageai.Client(api_key=settings.voyage_api_key, max_retries=2)
 
 
 def _load_or_build_embeddings(chunks: list[_Chunk]) -> list[list[float]]:

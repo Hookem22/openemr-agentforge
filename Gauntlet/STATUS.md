@@ -537,9 +537,34 @@ explicit/highest grading risk first):
    - **Re-verified live, not just pushed and assumed**: watched the real run on GitHub's runners (`gh run
      watch 29505800227`) — all 6 new steps plus the existing test step passed genuinely, 1m40s total.
 
-3. **Retry logic on outbound LLM/retrieval/FHIR calls** — not yet started. Timeouts already exist on every
-   outbound call; add bounded `tenacity`-based retry (transient errors only) around the Anthropic/Voyage/
-   `httpx` call sites.
+3. **Retry logic on outbound LLM/retrieval/FHIR calls — done 2026-07-16.** Real finding while auditing this:
+   Anthropic's SDK already retries transient errors by default (`max_retries=2`, retrying connection
+   errors and 408/409/429/5xx — confirmed by reading `anthropic._base_client.BaseClient._should_retry`),
+   so no code change was needed there — just a comment making that deliberate reliance explicit instead
+   of looking like a missing retry. Voyage's SDK, by contrast, defaults `max_retries=0` (off) — a real
+   gap, fixed by passing `max_retries=2` to `voyageai.Client(...)` in `rag.py`, which activates the SDK's
+   own correct tenacity-based retry (confirmed via its source: retries only `RateLimitError`/
+   `ServiceUnavailableError`/`Timeout`, not blindly). Re-verified live against the real Voyage API after
+   the change.
+   - `httpx` (used directly for FHIR reads and OpenEMR writes) has no client-level retry at all, unlike
+     either SDK — new `agent/app/retry.py` adds two policies, not one, because not every POST is equally
+     safe to retry: `retry_idempotent_http` (full transient set: connect errors, any timeout, 429/5xx) for
+     GETs and for `persist_lab_results` (has real server-side dedup via `procedure_order.external_id`, so
+     a retried-but-already-succeeded call is a harmless no-op); `retry_connect_only_http` (only
+     `ConnectError`/`ConnectTimeout` — failures before any bytes were sent) for `_upload_document` and the
+     medication/allergy POSTs, which have no server-side dedup, so a `ReadTimeout` there is genuinely
+     ambiguous (the request may have already been processed) and retrying it risks a real duplicate write.
+   - Applied to `fhir_client.py`'s `search`/`read`, and `ingestion.py`'s `_lookup_document`,
+     `_upload_document`, `persist_lab_results`, and the medication/allergy POST path (extracted into a new
+     `_post_json` helper so the retry wraps only the network call, not the existing tolerant
+     try/except that converts a permanent failure into a soft per-item result).
+   - **Deliberately not retried**: `main.py`'s `/ready` dependency checks — a health check should fail
+     fast to reflect true current status, not mask a real outage behind retries, and it already has its
+     own 60s cache TTL.
+   - 7 new unit tests (`agent/eval/test_retry_unit.py`, `time.sleep` monkeypatched so they run in 0.02s)
+     confirm both policies retry the right errors, don't retry the wrong ones, and give up after 3
+     attempts (1 original + 2 retries, matching Anthropic/Voyage's own default). Full Tier 1 suite
+     (94 tests), ruff, mypy, and bandit all still clean after.
 
 4. **Extraction confidence surfaced as telemetry** — not yet started. Confidence exists per-field in the
    extraction schema (for citations) but is never aggregated/logged as a span metric, despite being

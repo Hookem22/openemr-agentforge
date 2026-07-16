@@ -19,6 +19,7 @@ from langfuse import get_client, observe
 from pydantic import ValidationError
 
 from .config import settings
+from .retry import retry_connect_only_http, retry_idempotent_http
 from .schemas import DocType, IntakeFormExtraction, LabPdfExtraction
 
 # Categories seeded by docs/seed-w2-document-categories.sql. Deliberately single-word (no space)
@@ -52,11 +53,13 @@ def _file_hash(data: bytes) -> str:
     return hashlib.sha3_512(data).hexdigest()
 
 
+@retry_idempotent_http
 def _lookup_document(bearer_token: str, patient_id: str, category: str, filename: str, correlation_id: str) -> dict | None:
     """Resolves a document's id/hash by (patient, category, filename) via the new
     document_lookup endpoint (a direct query), not DocumentService::getAllAtPath() --
     see docs/seed-w2-document-categories.sql and Gauntlet/Week 2/STATUS.md for why:
-    getAllAtPath() hit an environment-specific issue discovered while building this."""
+    getAllAtPath() hit an environment-specific issue discovered while building this. Retried on
+    transient errors (retry.py) -- a GET, always safe."""
     resp = httpx.get(
         f"{settings.oemr_api_base_url}/patient/{patient_id}/document_lookup",
         params={"path": category, "filename": filename},
@@ -69,7 +72,12 @@ def _lookup_document(bearer_token: str, patient_id: str, category: str, filename
     return resp.json() or None
 
 
+@retry_connect_only_http
 def _upload_document(bearer_token: str, patient_id: str, category: str, filename: str, data: bytes, mimetype: str, correlation_id: str) -> None:
+    # Connect-only retry, not the full transient set (retry.py): OpenEMR's document-upload endpoint
+    # has no server-side dedup (only the pre-upload hash lookup in upload_and_resolve_document,
+    # which runs *before* this call, not inside it), so retrying a ReadTimeout here risks a genuine
+    # duplicate document row if the first attempt actually succeeded and only the response was lost.
     resp = httpx.post(
         f"{settings.oemr_api_base_url}/patient/{patient_id}/document",
         params={"path": category},
@@ -253,6 +261,9 @@ EXTRACTION_TOOL_BY_DOC_TYPE = {
 def _anthropic_client() -> Anthropic:
     if not settings.anthropic_api_key:
         raise RuntimeError("ANTHROPIC_API_KEY is not set")
+    # No explicit retry config: the SDK already defaults to max_retries=2, retrying connection
+    # errors and 408/409/429/5xx (see app/retry.py's module docstring for the verified details) --
+    # this is deliberate reliance on that default, not a missing retry.
     return Anthropic(api_key=settings.anthropic_api_key)
 
 
@@ -307,6 +318,7 @@ def _b64(data: bytes) -> str:
     return base64.b64encode(data).decode("ascii")
 
 
+@retry_idempotent_http
 def persist_lab_results(
     bearer_token: str, patient_id: str, document_id: int, extraction: LabPdfExtraction, correlation_id: str
 ) -> dict:
@@ -316,7 +328,11 @@ def persist_lab_results(
     same document_id + results is a no-op (server-side dedup on procedure_order.external_id).
     `correlation_id` is sent as X-Correlation-Id and logged server-side in
     ProcedureRestController::postResultsFromDocument -- this is the one write path we own, so it's
-    the one place a full agent-to-OpenEMR trace can actually be confirmed end to end."""
+    the one place a full agent-to-OpenEMR trace can actually be confirmed end to end.
+
+    Retried on the full transient-error set (retry.py), not just connect failures: unlike
+    _upload_document, a duplicate call here is a harmless server-side no-op (external_id dedup), so
+    a ReadTimeout-then-retry can't create a duplicate write."""
     if not extraction.results:
         return {"skipped": True, "procedure_order_id": None, "result_ids": []}
 
@@ -344,6 +360,16 @@ def persist_lab_results(
     return resp.json()
 
 
+@retry_connect_only_http
+def _post_json(url: str, headers: dict, json_body: dict, timeout: float) -> httpx.Response:
+    # Connect-only retry, not the full transient set (retry.py): the medication/allergy endpoints
+    # this feeds have no server-side dedup, so a ReadTimeout-then-retry risks a genuine duplicate
+    # entry if the first attempt actually succeeded and only the response was lost.
+    resp = httpx.post(url, headers=headers, json=json_body, timeout=timeout)
+    resp.raise_for_status()
+    return resp
+
+
 def _post_json_tolerant(url: str, headers: dict, json_body: dict, timeout: float) -> dict:
     """POSTs and parses the JSON response, but never raises on an individual item's failure
     (network error, non-2xx, or an empty/non-JSON body) -- one bad item (e.g. a transient error
@@ -351,8 +377,7 @@ def _post_json_tolerant(url: str, headers: dict, json_body: dict, timeout: float
     nor crash the whole ingestion call. Returns {"ok": True, "response": ...} or
     {"ok": False, "error": ...}."""
     try:
-        resp = httpx.post(url, headers=headers, json=json_body, timeout=timeout)
-        resp.raise_for_status()
+        resp = _post_json(url, headers, json_body, timeout)
         return {"ok": True, "response": resp.json()}
     except httpx.HTTPError as exc:
         return {"ok": False, "error": str(exc)}

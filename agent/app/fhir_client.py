@@ -13,6 +13,7 @@ import json
 import httpx
 
 from .config import settings
+from .retry import retry_idempotent_http
 
 
 def _parse_json(resp: httpx.Response) -> dict:
@@ -33,10 +34,11 @@ class FhirClient:
             raise ValueError("bearer_token is required (no anonymous/service-account access — see ARCHITECTURE.md)")
         self.bearer_token = bearer_token
 
+    @retry_idempotent_http
     def search(self, resource_type: str, params: dict | None = None) -> list[dict]:
         """Runs a FHIR search and returns the raw list of resources (unwrapped from the Bundle).
         Returns an empty list for zero matches -- callers must treat that as a real, first-class
-        case (UC-6), not an error."""
+        case (UC-6), not an error. Retried on transient errors (retry.py) -- a GET, always safe."""
         resp = httpx.get(
             f"{settings.fhir_base_url}/{resource_type}",
             params=params or {},
@@ -47,6 +49,7 @@ class FhirClient:
         bundle = _parse_json(resp)
         return [entry["resource"] for entry in bundle.get("entry", [])]
 
+    @retry_idempotent_http
     def read(self, resource_type: str, resource_id: str) -> dict:
         resp = httpx.get(
             f"{settings.fhir_base_url}/{resource_type}/{resource_id}",

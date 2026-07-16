@@ -12,6 +12,9 @@ voyageai>=0.3
 langgraph>=0.2.34
 python-dotenv>=1.0
 pydantic>=2.9
+# Retry logic for outbound httpx calls (app/retry.py) -- already a transitive dep via voyageai/
+# langchain-core, pinned explicitly now that app code imports it directly.
+tenacity>=8
 # Observability (agent-implementation.md decision #3): Langfuse Cloud for now. Uses the current
 # OpenTelemetry-based client API (get_client()/observe/propagate_attributes) -- the older
 # `langfuse.decorators` module (v2 SDK) no longer exists in this major version.

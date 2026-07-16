@@ -183,6 +183,9 @@ class AgentState(TypedDict):
 def _anthropic_client() -> Anthropic:
     if not settings.anthropic_api_key:
         raise RuntimeError("ANTHROPIC_API_KEY is not set")
+    # No explicit retry config: the SDK already defaults to max_retries=2, retrying connection
+    # errors and 408/409/429/5xx (see app/retry.py's module docstring for the verified details) --
+    # this is deliberate reliance on that default, not a missing retry.
     return Anthropic(api_key=settings.anthropic_api_key)
 
 
