@@ -565,6 +565,8 @@ explicit/highest grading risk first):
      confirm both policies retry the right errors, don't retry the wrong ones, and give up after 3
      attempts (1 original + 2 retries, matching Anthropic/Voyage's own default). Full Tier 1 suite
      (94 tests), ruff, mypy, and bandit all still clean after.
+   - **Re-verified live**: watched the real GitHub Actions run (`gh run watch 29510790805`) — all 6
+     CI steps genuinely green, 1m35s.
 
 4. **Extraction confidence surfaced as telemetry** — not yet started. Confidence exists per-field in the
    extraction schema (for citations) but is never aggregated/logged as a span metric, despite being
