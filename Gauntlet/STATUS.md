@@ -643,6 +643,43 @@ explicit/highest grading risk first):
 7. **Week 2's 3 Langfuse alerts** — user action, not code; already fully defined in `Week 2/OBSERVABILITY.md`,
    just need to be clicked into the Langfuse UI the same way Week 1's 4 already were.
 
+## Early Submission grader feedback (received 2026-07-17) — closed
+
+Verbatim summary: praised the demo (vision extraction + verifier, RAG summary against just-uploaded
+values), the Langfuse traces' full call-flow/span nesting, the honest measured cost analysis, and the two
+GitHub Actions workflows + committed OpenAPI spec + 50-case golden set landing the core engineering rows
+cleanly. One concrete fix flagged before Final: **rename the baseline categories to the rubric's exact
+boolean names (`schema_valid`, `citation_present`, `factually_consistent`, `safe_refusal`,
+`no_phi_in_logs`) so it's rubric-expected.**
+
+**Real gap this pointed at**: `run_eval_gate.py`'s baseline/Langfuse scores were keyed by each golden-set
+case's *domain category* (`citations`, `refusals`, `extraction`, `evidence_retrieval`, `missing_data`) —
+a completely different axis from the assignment's actual 5 boolean rubric names, despite a few
+similar-sounding pairs (`citations` vs `citation_present`, `refusals` vs `safe_refusal`) that made the
+mismatch easy to miss. Category groups the 50 *cases* into 5 scenario types; rubric is the 5 boolean
+checks computed on *every* case regardless of which category it's in.
+
+**Fix**:
+- `test_golden_set.py` now records each case's full rubric breakdown via pytest's own
+  `record_property("rubric_result", ...)` mechanism, before the pass/fail assert.
+- `run_eval_gate.py`'s `_ResultCollector` reads that back via `report.user_properties`; a new
+  `aggregate_by_rubric()` function (split out from `run_golden_set()` specifically so it's unit-testable
+  without a real `pytest.main()` invocation) computes pass rate across all 50 cases per rubric name, not
+  per category.
+- 6 new unit tests (`agent/eval/test_run_eval_gate_unit.py`) — there was no existing test file for the
+  gate script's own aggregation logic at all — cover: rate is computed across categories, not scoped to
+  one; a case with no recorded result can't inflate the rate; floor/regression detection still works
+  correctly with rubric-keyed dicts.
+- `baseline_results.json` regenerated for real (not hand-edited): a genuine, live 50-case golden-set run
+  produced a clean 50/50, 100% on every rubric, written as the new baseline. Required minting a fresh
+  temporary OAuth2 client for the run (the standing dev token had expired again) — registered, enabled,
+  used, then explicitly disabled again afterward, same disposable-credential pattern as every other live
+  test this project has done.
+- Updated `W2_ARCHITECTURE.md` §6/§9, `Week 2/OBSERVABILITY.md`'s alert #7 entry, and `agent/eval/
+  README.md` to describe per-rubric (not per-category) aggregation — also caught and fixed two stale
+  "5 percentage point" mentions left over from before the threshold was widened to 15.
+- Full Tier 1 suite (111 tests), ruff, mypy, bandit, pip-audit all clean after.
+
 **Before Final (Sunday 2026-07-19 @ Noon):** Section 13's deliberately-deferred stretch items are the
 natural pool to draw from if there's time/appetite, roughly in order of likely grading value:
 - A critic agent that rejects uncited claims (the assignment explicitly calls this out as an extension

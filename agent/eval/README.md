@@ -48,10 +48,14 @@ python eval/run_eval_gate.py --update-baseline   # (re)write the baseline from t
 ```
 
 `../scripts/install-hooks.sh` (run once from the repo root) installs this as a `pre-push` git hook,
-so it runs automatically before every push and blocks (non-zero exit) on a per-category regression
->5% or a drop below the 80% floor. Golden-set cases and the checker logic live in
-`golden_set.json` / `golden_checks.py` / `test_golden_set.py` -- see W2_ARCHITECTURE.md Section 6 for
-the full design (boolean rubrics, categories, why this tier uses real APIs).
+so it runs automatically before every push and blocks (non-zero exit) on a **per-rubric** regression
+>15 percentage points or a drop below the 80% floor -- pass rate is aggregated by the assignment's 5
+boolean rubric names (`schema_valid`, `citation_present`, `factually_consistent`, `safe_refusal`,
+`no_phi_in_logs`) across all 50 cases, not by each case's domain category (citations/refusals/
+extraction/evidence_retrieval/missing_data -- a different, orthogonal axis: category groups the 50
+cases into 5 scenario types; rubric is the 5 checks computed on every case regardless of category).
+Golden-set cases and the checker logic live in `golden_set.json` / `golden_checks.py` /
+`test_golden_set.py` -- see W2_ARCHITECTURE.md Section 6 for the full design.
 
 ## Test files and what they guard
 
@@ -69,6 +73,7 @@ the full design (boolean rubrics, categories, why this tier uses real APIs).
 | `test_use_case_edge_cases.py` | James Whitfield (truly empty chart -- every non-demographic claim must be `no_data`) vs. Dorothy Simmons (an explicit verified-absent NKDA entry -- must NOT be reported as `no_data`, since that would erase the fact someone actually checked). |
 | `test_regression_known_bugs.py` | Two documented upstream OpenEMR bugs: `FhirAllergyIntoleranceService.php`'s scalar/list `reaction` bug (Maria's allergy), and DocumentReference-vs-pnotes table mismatch (Maria's note). Guards graceful degradation, not that the bugs are fixed. |
 | `test_golden_set.py` | The Stage 4 gate: 50 cases across extraction, evidence retrieval, citations, refusals, and missing-data, each checked against 5 boolean rubrics (`golden_checks.py`). This is what `run_eval_gate.py` runs. |
+| `test_run_eval_gate_unit.py` | The gate's own aggregation/comparison logic (`aggregate_by_rubric`, `compare_to_baseline`) -- a rubric's pass rate is computed across every case sharing that rubric, not scoped to cases whose *category* happens to share a similar name; a case with no recorded result can't silently inflate the rate; floor/regression detection. |
 
 ## Results
 
