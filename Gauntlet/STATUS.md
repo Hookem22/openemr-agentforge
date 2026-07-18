@@ -679,6 +679,10 @@ checks computed on *every* case regardless of which category it's in.
   README.md` to describe per-rubric (not per-category) aggregation — also caught and fixed two stale
   "5 percentage point" mentions left over from before the threshold was widened to 15.
 - Full Tier 1 suite (111 tests), ruff, mypy, bandit, pip-audit all clean after.
+- Confirmed with a real watched GitHub Actions run: commit `574fbacb` pushed to both remotes, CI run
+  [`29648034657`](https://github.com/Hookem22/openemr-agentforge/actions/runs/29648034657) on
+  `agent-tier1.yml` — green in 1m24s (lint, typecheck, dependency audit, security scan, Tier 1 suite,
+  coverage all passed).
 
 **Before Final (Sunday 2026-07-19 @ Noon):** Section 13's deliberately-deferred stretch items are the
 natural pool to draw from if there's time/appetite, roughly in order of likely grading value:
