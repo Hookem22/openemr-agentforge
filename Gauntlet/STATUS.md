@@ -1,15 +1,15 @@
 # Project Status — AgentForge: Clinical Co-Pilot
 
-**Last updated:** 2026-07-15
+**Last updated:** 2026-07-19
 **Week 1 is complete and submitted** — see `Week 1/SUBMISSION.md`. This file is the living status doc for
 Week 2 (Multimodal Evidence Agent) onward; most of the detail below is Week 2's build log.
 
-**Overall state: Early Submission checkpoint fully closed.** MVP checkpoint **passed** (grader feedback
-received 2026-07-15 — see "MVP grader feedback" below). Both flagged gaps were closed and verified:
-server-side CI (a push/PR tier and a daily-scheduled real-API tier, each confirmed via a real, watched
-GitHub Actions run) and the cost/latency report extension to ingestion and retrieval (real Langfuse data
-+ a real load test against the deployed instance). The remaining Early Submission items — demo video,
-spot-checking the other 3 patients' uploads against production, and the social media post — are now done.
+**Overall state: Final checkpoint in progress — recording the final submission demo video now.** MVP
+checkpoint **passed** (grader feedback received 2026-07-15 — see "MVP grader feedback" below). Early
+Submission checkpoint **closed** (grader feedback received 2026-07-17 — see "Early Submission grader
+feedback" below), including the rubric-based eval-gate rename, confirmed via a real watched CI run
+(commit `28885f2a`). All core Week 2 deliverables and Engineering Requirements are done; the Final push is
+the demo video plus a last read-through of this doc and the deployed app before the Sunday noon deadline.
 
 ## Checkpoints (from the assignment)
 
@@ -18,7 +18,7 @@ spot-checking the other 3 patients' uploads against production, and the social m
 | Architecture Defense | 4 hours from sprint start | **Done** — `Week 2/W2_ARCHITECTURE.md` + `Week 2/W2_Architecture_Slides.pptx` |
 | MVP | Tuesday @ 11:59PM | **Passed, submitted 2026-07-14** — grader feedback received 2026-07-15, see below |
 | Early Submission | Thursday 2026-07-16 @ 11:59PM | **Done** — both grader-flagged gaps closed, demo video recorded, all 4 patients spot-checked in production, social media post published |
-| Final | Sunday 2026-07-19 @ Noon | Not started |
+| Final | Sunday 2026-07-19 @ Noon | **In progress** — all required deliverables done; recording the final demo video and doing a last pass before submission |
 
 ## MVP grader feedback (received 2026-07-15)
 
@@ -684,8 +684,18 @@ checks computed on *every* case regardless of which category it's in.
   `agent-tier1.yml` — green in 1m24s (lint, typecheck, dependency audit, security scan, Tier 1 suite,
   coverage all passed).
 
-**Before Final (Sunday 2026-07-19 @ Noon):** Section 13's deliberately-deferred stretch items are the
-natural pool to draw from if there's time/appetite, roughly in order of likely grading value:
+## Final push (2026-07-19)
+
+All required Week 2 deliverables and Engineering Requirements are done — nothing gating is outstanding.
+**Recording the final submission demo video now.** Remaining before the Sunday noon deadline:
+- Final demo video (3-5 min: document upload, extraction, evidence retrieval, citations, eval results,
+  observability — per the assignment's Demo Video deliverable spec).
+- A last read-through of this doc and a smoke-check of the deployed app right before submitting, to
+  confirm nothing regressed since the last CI-confirmed push (`28885f2a`).
+- Submit.
+
+Section 13's deliberately-deferred stretch items remain the pool to draw from only if there's time left
+after the above, roughly in order of likely grading value:
 - A critic agent that rejects uncited claims (the assignment explicitly calls this out as an extension
   deliverable, not core — but it's the most directly aligned with the verification-layer theme already
   central to both weeks' architecture).
@@ -694,4 +704,3 @@ natural pool to draw from if there's time/appetite, roughly in order of likely g
 - A third document type (referral fax/medication list) or a lab-trend-chart widget — lower priority unless
   specifically requested, since they're pure feature-surface expansion rather than deepening what's already
   built.
-- Anything Early Submission feedback specifically flags — that should take priority over this list.
