@@ -14,9 +14,9 @@ import psycopg2
 import psycopg2.extras
 
 from app.config import settings
-from app.schemas import AttackCategory, ExploitRecord, Verdict
+from app.schemas import AttackCategory, CategoryCounts, CoverageState, ExploitRecord, Verdict, VulnerabilityReport
 
-_MIGRATIONS_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "migrations")
+_MIGRATIONS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "migrations")
 
 
 @contextmanager
@@ -109,3 +109,82 @@ def coverage_by_category(target_id: str, target_version: str) -> dict[str, dict[
                 counts.setdefault(category, {"confirmed": 0, "partial": 0, "not_confirmed": 0})
                 counts[category][verdict] = count
     return counts
+
+
+def count_open_findings(target_id: str, target_version: str) -> int:
+    """Confirmed/partial exploit_records with no vulnerability_report row yet -- the Orchestrator's
+    'unresolved findings' signal, distinct from coverage-by-category (which counts attempts, not
+    resolution state)."""
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT count(*) FROM exploit_records er
+                WHERE er.target_id = %s AND er.target_version = %s
+                  AND er.verdict IN ('confirmed', 'partial')
+                  AND NOT EXISTS (
+                      SELECT 1 FROM vulnerability_reports vr WHERE vr.exploit_record_id = er.id
+                  )
+                """,
+                (target_id, target_version),
+            )
+            (count,) = cur.fetchone()
+    return count
+
+
+def get_coverage_state(target_id: str, target_version: str) -> CoverageState:
+    """Composes coverage_by_category + count_open_findings into the single CoverageState object
+    the Orchestrator Agent actually reads (contracts/v1/coverage_state.schema.json) -- one place
+    that knows how to assemble this, rather than every caller re-deriving it from two functions."""
+    raw_categories = coverage_by_category(target_id, target_version)
+    return CoverageState(
+        target_id=target_id,
+        target_version=target_version,
+        categories={cat: CategoryCounts(**counts) for cat, counts in raw_categories.items()},
+        open_findings=count_open_findings(target_id, target_version),
+    )
+
+
+def report_exists_for_exploit(exploit_record_id: str) -> bool:
+    """Data-quality pre-check the Documentation Agent runs before writing -- the real guarantee is
+    the DB's own UNIQUE constraint (migrations/0002_documentation.sql), this just lets the agent
+    fail fast with a clear reason instead of a raw constraint-violation exception."""
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT 1 FROM vulnerability_reports WHERE exploit_record_id = %s", (exploit_record_id,)
+            )
+            return cur.fetchone() is not None
+
+
+def insert_vulnerability_report(report: VulnerabilityReport) -> None:
+    """Insert-or-ignore on exploit_record_id -- matches insert_exploit_record's dedup discipline.
+    Required-field presence and severity/status enum validity are already enforced by
+    VulnerabilityReport's own Pydantic validation before this is ever called (schemas.py), so this
+    function's only remaining job is the no-duplicate-per-exploit guarantee."""
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO vulnerability_reports
+                    (id, exploit_record_id, severity, description, clinical_impact,
+                     reproduction_steps, observed_behavior, expected_behavior,
+                     remediation_recommendation, status, created_at, fix_validated_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (exploit_record_id) DO NOTHING
+                """,
+                (
+                    report.id,
+                    report.exploit_record_id,
+                    report.severity.value,
+                    report.description,
+                    report.clinical_impact,
+                    json.dumps(report.reproduction_steps),
+                    report.observed_behavior,
+                    report.expected_behavior,
+                    report.remediation_recommendation,
+                    report.status.value,
+                    report.created_at,
+                    report.fix_validated_at,
+                ),
+            )

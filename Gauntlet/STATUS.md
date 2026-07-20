@@ -127,6 +127,51 @@ multiple times" question ran 45.48s before the target errored (very close to `pr
 timeout) — consistent with, but not fully proven to be caused by, the confirmed uncapped tool-call
 loop. Documented as partial, not overclaimed as fully confirmed from an error response alone.
 
+### Same day, continued — Orchestrator Agent, Documentation Agent, full graph wiring (pulled forward
+from Tuesday's plan)
+
+- [x] **Orchestrator Agent** (`redteam/app/orchestrator_agent.py`) — priority scoring is a
+  deterministic function over real coverage counts (not an LLM decision): under-covered categories
+  score highest, a confirmed/partial hit deprioritizes a category, and a category gets escalated to
+  Sonnet only after `ESCALATE_AFTER_N_MISSES` (2) not-confirmed attempts with zero hits. Haiku is used
+  only to write the human-readable `rationale` string, never to pick the category — deliberately
+  matching the assignment's own framing that deterministic tooling beats an LLM call where arithmetic
+  suffices. Added `contracts/v1/next_target.schema.json` + `coverage_state.schema.json`.
+- [x] **Documentation Agent** (`redteam/app/documentation_agent.py`) — Haiku, tool-use-forced
+  structured output (description, clinical impact, minimal reproduction steps, observed/expected
+  behavior, remediation recommendation). Data-quality validation (`validate_report()`: no blank
+  required fields, no duplicate report per exploit) runs before insert, backed by a real DB `UNIQUE`
+  constraint (`redteam/migrations/0002_documentation.sql`) as the actual guarantee. Severity-gated
+  publishing (Critical/High → human approval) is still Wednesday's work; every report reaches
+  `auto_published` directly today — a stated scope boundary, not an oversight.
+- [x] **`redteam/app/graph.py`** — the real compiled LangGraph: `orchestrator → red_team →
+  target_adapter → judge →(confirmed/partial) documentation`, `judge →(not_confirmed) orchestrator`,
+  capped at `MAX_ITERATIONS_PER_CAMPAIGN = 3` — deliberately mirroring `agent/app/graph.py`'s
+  `MAX_HANDOFFS_PER_TURN` pattern, and deliberately *not* repeating the uncapped-loop bug this
+  platform's own `THREAT_MODEL.md` confirmed in the target. `redteam/scripts/run_campaign.py` runs
+  one full campaign live.
+- [x] **Real bug found + fixed**: the first version of `graph.py` only wrote to `exploit_records`
+  inside `documentation_node` — meaning every `not_confirmed` attempt (the majority of attempts, by
+  definition) was invisible to the Orchestrator's coverage scoring. Caught by noticing `tool_misuse`
+  had zero rows in `exploit_records` after 3 real live attempts through the graph, so the Orchestrator
+  would have kept re-picking it as "uncovered" forever. Fixed by moving the `insert_exploit_record`
+  call into `judge_node` (every verdict gets a row), with `documentation_node` only handling report
+  generation. Re-verified live: after the fix, a second campaign correctly scored `tool_misuse` down
+  from 1000 to 500 after its first recorded attempt, and picked the untested
+  `identity_role_exploitation` category next — the prioritization logic adapting in real time within
+  a single campaign, not just in theory.
+- [x] Also found + fixed the same day: a relative-`__file__` path bug (`app/attack_templates.py`,
+  `app/db.py`) that broke seed-template/migration file lookup specifically when the redteam scripts
+  were invoked via a relative path — fixed with `os.path.abspath(__file__)` in both.
+- [x] Added seed templates for the 2 previously-untested categories (`tool_misuse`,
+  `identity_role_exploitation`) to `evals/seed_attacks.json`, grounded in `THREAT_MODEL.md` Sections
+  4 and 6 — all 6 required attack categories now have a real, live-runnable seed.
+- [x] **Full pipeline proven live, all 4 agents**: a direct test through `data_exfiltration` (already
+  known to confirm reliably) produced a real `CONFIRMED`/`HIGH` verdict → a real
+  `VulnerabilityReport` written to `vulnerability_reports` (`status=auto_published`), with concrete,
+  literally-followable reproduction steps — the Documentation Agent's own bar, met for real, not
+  just designed to meet it.
+
 ## Checkpoints (from the assignment) — Week 1-2 history below
 
 | Checkpoint | Deadline | Status |

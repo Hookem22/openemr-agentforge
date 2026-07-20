@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentforge.week3/contracts/v1/next_target.schema.json",
+  "title": "NextTarget",
+  "description": "Orchestrator -> Red Team Agent. Which category to attack next and why, plus whether to escalate to the stronger model. The Orchestrator never generates or judges an attack itself -- this is the entirety of its output.",
+  "type": "object",
+  "required": ["target_id", "attack_category", "escalate", "rationale"],
+  "properties": {
+    "target_id": { "type": "string" },
+    "attack_category": {
+      "type": "string",
+      "enum": [
+        "prompt_injection",
+        "data_exfiltration",
+        "state_corruption",
+        "tool_misuse",
+        "denial_of_service",
+        "identity_role_exploitation"
+      ]
+    },
+    "escalate": {
+      "type": "boolean",
+      "description": "True = use the stronger (Sonnet) model for this attempt, per ARCHITECTURE.md's model-tiering decision -- set when a category has repeated not_confirmed attempts and may need a more creative attack, not on every call."
+    },
+    "rationale": {
+      "type": "string",
+      "description": "Human-readable reason this category was picked over the others -- shown in reports/logs, not used by any downstream agent's logic."
+    },
+    "priority_score": {
+      "type": ["number", "null"],
+      "description": "The deterministic score that drove this pick, for auditability -- lets a human verify the Orchestrator's own prioritization logic without re-deriving it."
+    }
+  }
+}

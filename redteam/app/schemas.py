@@ -90,3 +90,46 @@ class ExploitRecord(BaseModel):
     judge_verdict: JudgeVerdict
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     regression_of: str | None = None
+
+
+class CategoryCounts(BaseModel):
+    confirmed: int = 0
+    partial: int = 0
+    not_confirmed: int = 0
+
+
+class CoverageState(BaseModel):
+    target_id: str
+    target_version: str
+    categories: dict[str, CategoryCounts]
+    open_findings: int = 0
+
+
+class NextTarget(BaseModel):
+    target_id: str
+    attack_category: AttackCategory
+    escalate: bool = False
+    rationale: str
+    priority_score: float | None = None
+
+
+class ReportStatus(str, Enum):
+    DRAFT = "draft"
+    AUTO_PUBLISHED = "auto_published"
+    PENDING_APPROVAL = "pending_approval"
+    PUBLISHED = "published"
+
+
+class VulnerabilityReport(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    exploit_record_id: str
+    severity: Severity
+    description: str
+    clinical_impact: str
+    reproduction_steps: list[str]
+    observed_behavior: str
+    expected_behavior: str
+    remediation_recommendation: str
+    status: ReportStatus = ReportStatus.DRAFT
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    fix_validated_at: datetime | None = None
