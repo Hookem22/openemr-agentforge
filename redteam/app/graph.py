@@ -39,6 +39,7 @@ class RedTeamGraphState(TypedDict):
     verdict: dict | None
     exploit_record: dict | None
     report: dict | None
+    report_error: str | None
     iterations: int
 
 
@@ -122,9 +123,19 @@ def route_after_judge(state: RedTeamGraphState) -> str:
 
 
 def documentation_node(state: RedTeamGraphState) -> dict:
+    """A Documentation Agent failure must not lose the confirmed exploit itself -- that's already
+    durably written to exploit_records by judge_node before this node ever runs. Caught live: a
+    truncated report-generation call crashed the whole process on a genuine, valuable confirmed
+    exploit, which is a worse outcome than a campaign that ends one node early with the exploit
+    safely on record and no report yet. A human/regression run can retry documentation later from
+    exploit_records directly; a lost process taking the confirmed finding down with it cannot."""
     record = ExploitRecord(**state["exploit_record"])
-    report = document(record)
-    return {"report": report.model_dump(mode="json")}
+    try:
+        report = document(record)
+        return {"report": report.model_dump(mode="json"), "report_error": None}
+    except Exception as exc:  # noqa: BLE001 -- deliberately broad: any Documentation failure mode
+        # (LLM truncation, a future rate limit, a schema mismatch) should degrade the same way here.
+        return {"report": None, "report_error": f"{type(exc).__name__}: {exc}"}
 
 
 def build_graph():

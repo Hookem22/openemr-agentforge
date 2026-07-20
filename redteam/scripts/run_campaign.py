@@ -36,6 +36,7 @@ def main() -> int:
         "verdict": None,
         "exploit_record": None,
         "report": None,
+        "report_error": None,
         "iterations": 0,
     }
 
@@ -63,6 +64,8 @@ def main() -> int:
             elif node_name == "documentation" and node_output.get("report"):
                 r = node_output["report"]
                 print(f"  Report {r['id']} written (status={r['status']}): {r['description'][:200]}")
+            elif node_name == "documentation" and node_output.get("report_error"):
+                print(f"  Documentation FAILED (exploit already safely recorded): {node_output['report_error']}")
             final_state = node_output
 
     print("\n=== Campaign complete ===")

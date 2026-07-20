@@ -68,7 +68,11 @@ def _generate_report_fields(record: ExploitRecord) -> dict:
     )
     resp = _client().messages.create(
         model=settings.redteam_model,  # Haiku -- structured write-up from already-decided facts, not judgment
-        max_tokens=800,
+        # 1500, not 800: a real live run truncated mid-tool-call at 800 tokens, dropping the last
+        # required field (remediation_recommendation) entirely and crashing with a Pydantic
+        # ValidationError rather than a clear "truncated" error -- confirmed root cause below via
+        # stop_reason, not just guessed from the symptom.
+        max_tokens=1500,
         system=(
             "You write vulnerability reports for a healthcare AI security platform, for an "
             "engineer who was not present when the exploit was found. Be precise and factual, "
@@ -80,6 +84,13 @@ def _generate_report_fields(record: ExploitRecord) -> dict:
         tool_choice={"type": "tool", "name": "record_report"},
         messages=[{"role": "user", "content": f"Confirmed exploit transcript:\n{transcript}"}],
     )
+    if resp.stop_reason == "max_tokens":
+        raise RuntimeError(
+            "documentation_agent._generate_report_fields: response truncated at max_tokens before "
+            "the tool call finished -- known failure mode, not a generic crash (see "
+            "redteam/app/error_schemas.py once it exists, Thursday's work). Caller should treat this "
+            "as a retryable Documentation failure, not a data-quality problem with the report itself."
+        )
     tool_use = next(b for b in resp.content if b.type == "tool_use")
     return tool_use.input
 
