@@ -1,0 +1,76 @@
+graph TB
+    Clinician["Clinician (browser)<br/>sends real chat traffic"]
+
+    subgraph existing["EXISTING — Clinical Co-Pilot graph (agent/app/graph.py, Weeks 1-2, unchanged)"]
+        direction TB
+        SUP["supervisor<br/>(entry point)"]
+        INTAKE["intake_extractor"]
+        EVID["evidence_retriever"]
+        AGENT["agent"]
+        EXEC["execute_tools"]
+        VERIFY["verify"]
+        ENDW(("END"))
+
+        SUP -->|"route_after_supervisor"| INTAKE
+        SUP -->|"route_after_supervisor"| EVID
+        SUP -->|"route_after_supervisor"| AGENT
+        INTAKE --> SUP
+        EVID --> SUP
+        AGENT -->|"route_after_agent"| EXEC
+        AGENT -->|"route_after_agent"| VERIFY
+        EXEC --> AGENT
+        VERIFY --> ENDW
+    end
+
+    subgraph new["NEW / PROPOSED — Red Team graph (redteam/app/graph.py, Week 3)"]
+        direction TB
+        ORCH["orchestrator<br/>(entry point)"]
+        RT["red_team"]
+        TA["target_adapter"]
+        JUDGE["judge"]
+        DOC["documentation"]
+        GATE{{"human_gate<br/>(LangGraph interrupt)"}}
+        ENDN(("END"))
+
+        ORCH --> RT
+        RT --> TA
+        TA --> JUDGE
+        JUDGE -->|"confirmed"| DOC
+        JUDGE -->|"not confirmed"| ORCH
+        DOC -->|"auto_publish"| ENDN
+        DOC -->|"needs_approval"| GATE
+        GATE -->|"approved → resume"| ENDN
+    end
+
+    subgraph stores["Shared data substrate"]
+        direction LR
+        DB[("Exploit DB<br/>target_id · target_version · attack_category")]
+        REPORTS[("Vulnerability Reports")]
+    end
+
+    Clinician -.->|"real chat traffic"| SUP
+    TA ==>|"target-specific request (OpenEMRAdapter)"| SUP
+    VERIFY ==>|"target-specific response"| TA
+
+    JUDGE -.->|"verdict"| DB
+    DOC -.->|"exploit record"| DB
+    DOC -.->|"publish"| REPORTS
+    GATE -.->|"publish"| REPORTS
+    DB -.->|"coverage state"| ORCH
+    DB -.->|"regression trigger"| RT
+
+    classDef existingNode fill:#E8E8E8,stroke:#6B6B6B,stroke-width:1.5px,color:#3A3A3A;
+    classDef newNode fill:#DCE9F5,stroke:#0B3D63,stroke-width:1.5px,color:#0B3D63;
+    classDef gateNode fill:#FFFFFF,stroke:#E76F51,stroke-width:2px,color:#E76F51;
+    classDef store fill:#F2F2F2,stroke:#6B6B6B,stroke-width:1.25px,color:#3A3A3A;
+    classDef actor fill:#FFFFFF,stroke:#6B7280,stroke-width:1.25px,color:#3A3A3A;
+
+    class SUP,INTAKE,EVID,AGENT,EXEC,VERIFY,ENDW existingNode;
+    class ORCH,RT,TA,JUDGE,DOC,ENDN newNode;
+    class GATE gateNode;
+    class DB,REPORTS store;
+    class Clinician actor;
+
+    style existing fill:#F2F2F2,stroke:#6B6B6B,stroke-width:2px;
+    style new fill:#EAF1FA,stroke:#0B3D63,stroke-width:2px;
+    style stores fill:#FFFFFF,stroke:#6B7280,stroke-width:1px,stroke-dasharray: 3 3;

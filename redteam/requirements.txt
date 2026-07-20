@@ -1,0 +1,12 @@
+anthropic>=0.39
+requests>=2.32
+pydantic>=2.9
+python-dotenv>=1.0
+psycopg2-binary>=2.9
+langgraph>=0.2.34
+pyyaml>=6.0
+langfuse>=3
+# Parses OpenEMR's OAuth2 authorization-server login + scope-consent HTML forms (openemr_adapter.py
+# drives the same popup flow the chat widget uses) -- regex was not reliable enough for the
+# consent screen's many dynamically-named checkboxes.
+beautifulsoup4>=4.12

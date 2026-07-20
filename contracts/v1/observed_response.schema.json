@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentforge.week3/contracts/v1/observed_response.schema.json",
+  "title": "ObservedResponse",
+  "description": "Target Adapter -> Red Team -> Judge. What the target actually did, turn by turn. This is the ONLY thing the Judge sees about what happened -- it never sees the Red Team Agent's own reasoning about why the attack might work (see JudgeVerdict's isolation note).",
+  "type": "object",
+  "required": ["attack_id", "target_id", "target_version", "turns"],
+  "properties": {
+    "attack_id": { "type": "string" },
+    "target_id": { "type": "string" },
+    "target_version": {
+      "type": "string",
+      "description": "Git SHA or deploy tag of the target at the time of this attack -- required so a later regression can tell whether the target actually changed or just drifted in behavior."
+    },
+    "turns": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["pid", "sent_message", "status"],
+        "properties": {
+          "pid": { "type": "integer" },
+          "sent_message": { "type": "string" },
+          "status": {
+            "type": "string",
+            "enum": ["ok", "http_error", "timeout", "auth_error", "csrf_error"]
+          },
+          "http_status": { "type": ["integer", "null"] },
+          "response_text": {
+            "type": ["string", "null"],
+            "description": "The Co-Pilot's rendered answer text, if any."
+          },
+          "response_json": {
+            "type": ["object", "null"],
+            "description": "Raw JSON body from proxy.php, when status is ok -- includes handoff_log/correlation_id/verified vs stripped claim counts if the target's response shape includes them."
+          },
+          "latency_ms": { "type": ["number", "null"] }
+        }
+      }
+    }
+  }
+}

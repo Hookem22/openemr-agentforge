@@ -7,6 +7,11 @@ agent/.env
 agent/venv/
 agent/**/__pycache__/
 agent/.coverage
+
+# Week 3 adversarial platform secrets (Anthropic key, dedicated OpenEMR test login, Postgres URL)
+redteam/.env
+redteam/venv/
+redteam/**/__pycache__/
 # Rebuildable Voyage embedding cache for the Week 2 guideline corpus (agent/app/rag.py) -- derived
 # from agent/data/guidelines/*.md, regenerated automatically on first run after a corpus change.
 agent/data/guidelines_index_cache.json

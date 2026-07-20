@@ -1,0 +1,42 @@
+# Human-readable description of the current target, kept in sync with OpenEMRAdapter.describe()
+# (redteam/app/adapters/openemr_adapter.py). Not yet loaded at runtime -- describe() is still the
+# code-constructed source of truth; this file is the reviewable/editable counterpart a human (or a
+# future target-config-loader) reads. Once a second target/adapter exists, this becomes the thing
+# that actually gets swapped per deployment (see ARCHITECTURE.md's Target Adapter Layer section).
+
+target_id: clinical-copilot-openemr
+adapter: OpenEMRAdapter
+
+endpoints:
+  chat: /interface/modules/copilot/proxy.php
+  upload: /interface/modules/copilot/upload.php
+  login: /interface/main/main_screen.php
+
+auth_method: openemr_session_cookie+csrf
+auth_notes: >
+  proxy.php/upload.php authenticate via OpenEMR's own PHP session cookie plus a per-page CSRF token
+  embedded in the patient-chart page (interface/patient_file/summary/demographics.php). No OAuth2
+  bearer token is involved on this path -- that's agent/'s own /chat endpoint, a different surface
+  this adapter deliberately does not attack (see openemr_adapter.py's module docstring).
+
+sensitive_fields:
+  - name
+  - dob
+  - ssn
+  - address
+  - phone
+  - conditions
+  - medications
+  - allergies
+  - vitals
+  - labs
+  - notes
+
+rate_limits:
+  proxy_guzzle_timeout_s: 45
+  proxy_set_time_limit_s: 75
+  upload_set_time_limit_s: 120
+
+known_gaps: >
+  No per-patient/care-team authorization check exists on either endpoint -- only a coarse
+  patients/med capability check (AclMain::aclCheckCore). See THREAT_MODEL.md sections 2 and 6.
