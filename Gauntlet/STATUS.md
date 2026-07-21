@@ -950,5 +950,9 @@ Remediation, in priority order (lowest rubric score earned first, per the plan d
    reintroduce the same false failure — verified by hand that the new check still catches a
    removed endpoint and a removed required field, and correctly ignores a cosmetic-only diff. Full Tier 1
    suite (111 tests), ruff, mypy, bandit, pip-audit all clean after.
+   Confirmed with a real watched GitHub Actions run on a fresh clean install (the exact scenario that
+   failed for the grader): commit `e56da5ad`, CI run
+   [`29850162966`](https://github.com/Hookem22/openemr-agentforge/actions/runs/29850162966) — green in
+   1m25s.
 2. **P1/P2 — eval gate genuinely PR-blocking + 5% bound — up next.**
 3. Remaining P1/P2/P3 items per the plan doc, in order.
