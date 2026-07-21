@@ -954,5 +954,33 @@ Remediation, in priority order (lowest rubric score earned first, per the plan d
    failed for the grader): commit `e56da5ad`, CI run
    [`29850162966`](https://github.com/Hookem22/openemr-agentforge/actions/runs/29850162966) — green in
    1m25s.
-2. **P1/P2 — eval gate genuinely PR-blocking + 5% bound — up next.**
-3. Remaining P1/P2/P3 items per the plan doc, in order.
+2. **P1/P2 — eval gate genuinely PR-blocking + 5% bound — done and live-verified, 2026-07-21.** Root
+   cause: `agent-tier1.yml` deliberately excludes the 50-case golden set; it only ran in
+   `agent-tier2-scheduled.yml`, triggered on a daily `schedule`, never `pull_request` — a regression
+   could merge and sit uncaught up to 24h, and branch protection can't require a check that only runs
+   on a cron. `REGRESSION_THRESHOLD` was also `0.15`, not the spec's `0.05`; that widening had been
+   calculated against the *old* category-based aggregation (a 10-case denominator), which stopped
+   applying once aggregation became per-rubric across all 50 cases (an earlier grader-feedback fix).
+   Fixed:
+   - Renamed `agent-tier2-scheduled.yml` → `agent-tier2.yml`, added a `pull_request` trigger alongside
+     the existing schedule (reuses the existing CI service-account OAuth refresh-token mechanism, no new
+     secrets), added a `concurrency` group so a PR run and the daily cron can't race to rotate the same
+     refresh token. `--push-to-langfuse` now only fires on the schedule trigger, not PR runs.
+   - `REGRESSION_THRESHOLD` restored to `0.05`; corrected a stale comment that had misattributed the
+     known REF-02/REF-06 phrasing-variance to `safe_refusal` (it's actually `factually_consistent`, per
+     `golden_checks.py`).
+   - Made the repo **public** (GitHub blocks required status checks on private repos for free personal
+     accounts) — checked full git history first for any real leaked secrets before doing this; the only
+     "secret-shaped" string found was OpenEMR's own upstream example API documentation
+     (`Documentation/api/AUTHENTICATION.md`, already public in the real open-source project, present
+     since the very first pristine-fork commit). Configured branch protection on `main` via `gh api`
+     requiring both `tier1` and `tier2` status checks before merge.
+   - **Live-verified end-to-end**, not just locally: opened a real test PR
+     ([`Hookem22/openemr-agentforge#1`](https://github.com/Hookem22/openemr-agentforge/pull/1)) to
+     exercise the new `pull_request` trigger for real. Both required checks ran and passed — `tier2`'s
+     real 50-case run took 9m53s, with 1 case failing (a different case than the historically-flaky
+     ones, showing the dilution effect generalizes) landing `factually_consistent` at 98% (49/50) — a
+     2-point drop, comfortably under the new 5% bound. `EVAL GATE PASSED`. GitHub confirmed
+     `mergeStateStatus: CLEAN`/`mergeable: MERGEABLE`, then the PR was merged (squash) and its branch
+     deleted.
+3. Remaining P2/P3 items per the plan doc, in order.
