@@ -1,9 +1,10 @@
 # ARCHITECTURE.md — Adversarial AI Security Platform
 
-*Status: MVP in progress. Red Team + Judge agents, the Target Adapter, contracts v1, and the Exploit DB
-are built and have run live against the deployed target — see the Status callout below and
-`Gauntlet/STATUS.md` for the full build log. Orchestrator, Documentation Agent, the human-approval gate,
-and the full compiled LangGraph wiring are Tuesday-onward work.*
+*Status: all 4 agents (Red Team, Judge, Orchestrator, Documentation), the Target Adapter, the full
+compiled LangGraph, and the human-approval gate (a real LangGraph interrupt, Postgres-checkpointed) are
+built and proven live against the deployed target — see the Status callout below and `Gauntlet/STATUS.md`
+for the full build log. Remaining: DB access-control roles, SQL indexing/SLO, contract tests, Garak/ZAP,
+and deploying `redteam/` as its own service.*
 
 ## Summary
 
@@ -63,15 +64,19 @@ a different target, not permanently wired to this one.
 
 ## Status — confirmed live, not just designed
 
-The Red Team Agent and Judge Agent are built and have run live against the deployed target
+All four agents are built and have run live against the deployed target
 (`https://openemr-app-production-ded9.up.railway.app`), authenticated as a dedicated, non-admin OpenEMR
 test user (`redteam_attacker`, Clinicians GACL group) through the real OAuth2 authorization flow
-`proxy.php` requires — not a shortcut around it. First live run result: **1 confirmed exploit (High
-severity) — cross-patient data exfiltration** (the Co-Pilot returned another patient's real chart data to
-a request with no stated care-team relationship, confirming `THREAT_MODEL.md`'s top finding), **2 partial
-findings** (state-corruption verifier gap, denial-of-service timeout signal), **1 not-confirmed**. Full
-detail, including two real bugs found and fixed along the way (a malformed test fixture, and the Red Team
-Agent's own generation-refusal problem above), is in `Gauntlet/STATUS.md`.
+`proxy.php` requires — not a shortcut around it. The Orchestrator's coverage-based prioritization has been
+observed live re-scoring categories in real time as new results land within a single campaign, not just in
+theory. **4 distinct vulnerability reports are on record**, across all 4 categories that have confirmed or
+partial findings so far: cross-patient data exfiltration (High), identity/role impersonation (High), a
+state-corruption verifier gap on a real sulfonamide-allergy/Bactrim conflict (High), and a denial-of-service
+timeout signal (Medium). The human-approval gate has been proven live end-to-end on a real High-severity
+finding: it genuinely paused (Postgres-checkpointed, not in-process memory) and only published after an
+explicit separate approval action. Full detail, including every real bug found and fixed along the way
+(a malformed test fixture, the Red Team Agent's own generation-refusal problem, a coverage-tracking gap,
+a report-generation truncation crash), is in `Gauntlet/STATUS.md`.
 
 ## Agent Roster
 
@@ -217,12 +222,17 @@ recommendation for a human engineer to act on, never an automated code change.
    Rejected: a stronger safety disclaimer in the system prompt, which did not resolve the refusals in
    practice.
 
-## Open items before MVP submission
+## Remaining work
 
-- ~~`./THREAT_MODEL.md`~~ — done.
-- ~~`./evals/` seed suite + one live agent prototype~~ — done; Red Team + Judge both ran live, 4 categories,
-  1 confirmed exploit. See `Gauntlet/STATUS.md`.
+- ~~`./THREAT_MODEL.md`, `./USERS.md`, `./ARCHITECTURE.md`~~ — done (MVP hard gates).
+- ~~`./evals/` seed suite + live agent prototype~~ — done; all 4 agents run live, all 6 categories seeded.
 - ~~Target Adapter, contracts v1, Exploit DB~~ — done and proven live.
-- `./USERS.md` — in progress alongside this document.
-- Orchestrator Agent, Documentation Agent, the human-approval gate (LangGraph interrupt), and full graph
-  compilation — Tuesday onward, per `Gauntlet/Week 3/PLAN.md`.
+- ~~Orchestrator Agent, Documentation Agent, full graph compilation~~ — done and proven live.
+- ~~Human-approval gate (LangGraph interrupt, Postgres-checkpointed)~~ — done and proven live on a real
+  High-severity finding.
+- DB access-control model (per-agent Postgres roles/grants), SQL indexing + a regression-run time budget
+  verified in CI, contract tests validating `schemas.py` against the checked-in JSON Schema, a real
+  schema-migration story now that the schema has changed more than once — per `Gauntlet/Week 3/PLAN.md`.
+- Garak/OWASP ZAP integration, the simulated vuln-scan triage exercise, the ATO-style evidence packet,
+  typed per-agent error schemas, deploying `redteam/` as its own Railway service, the load/stress test,
+  and the AI cost analysis — remaining Thursday/Friday work per the plan.

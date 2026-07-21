@@ -10,3 +10,9 @@ langfuse>=3
 # drives the same popup flow the chat widget uses) -- regex was not reliable enough for the
 # consent screen's many dynamically-named checkboxes.
 beautifulsoup4>=4.12
+# Postgres-backed checkpointer for the human-approval LangGraph interrupt (app/human_gate.py) --
+# proven live to survive a real process restart before being wired into the real graph, see
+# Gauntlet/STATUS.md. Needs psycopg[binary] specifically (not psycopg2) -- this checkpointer
+# package is built on psycopg 3.
+langgraph-checkpoint-postgres>=3.0
+psycopg[binary]>=3.1

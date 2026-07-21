@@ -145,6 +145,18 @@ def get_coverage_state(target_id: str, target_version: str) -> CoverageState:
     )
 
 
+def publish_report(report_id: str) -> None:
+    """The ONLY way a pending_approval report becomes published -- called exclusively from
+    app/human_gate.py after a real human resumes the paused graph with an approve decision. No
+    other code path in this platform sets a report to 'published'."""
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE vulnerability_reports SET status = 'published' WHERE id = %s AND status = 'pending_approval'",
+                (report_id,),
+            )
+
+
 def report_exists_for_exploit(exploit_record_id: str) -> bool:
     """Data-quality pre-check the Documentation Agent runs before writing -- the real guarantee is
     the DB's own UNIQUE constraint (migrations/0002_documentation.sql), this just lets the agent

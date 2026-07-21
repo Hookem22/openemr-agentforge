@@ -16,18 +16,44 @@ from __future__ import annotations
 
 from typing import TypedDict
 
+from langgraph.checkpoint.postgres import PostgresSaver
 from langgraph.graph import END, StateGraph
+from psycopg import Connection
+from psycopg.rows import dict_row
 
 from app.adapters.openemr_adapter import OpenEMRAdapter
 from app.attack_templates import get_template
+from app.config import settings
 from app.db import insert_exploit_record, run_migrations
 from app.documentation_agent import document
+from app.human_gate import human_gate_node
 from app.judge_agent import judge
 from app.orchestrator_agent import decide_next_target
 from app.redteam_agent import generate_attack
 from app.schemas import AttackSequence, ExploitRecord, JudgeVerdict, NextTarget, ObservedResponse, Verdict
 
 MAX_ITERATIONS_PER_CAMPAIGN = 3
+
+_checkpointer: PostgresSaver | None = None
+
+
+def _get_checkpointer() -> PostgresSaver:
+    """A checkpointer is required for the human_gate interrupt to actually pause/resume across
+    separate process invocations (proven in the isolated spike -- see PLAN.md/STATUS.md). Deliberately
+    NOT `with PostgresSaver.from_conn_string(...) as cp:` here -- that context manager closes its
+    connection the moment the `with` block exits, which would happen the instant build_graph()
+    returns, breaking any interrupt that outlives this function call (the whole point of the human
+    gate). Instead: one long-lived psycopg connection for the process's life, matching exactly the
+    connection settings from_conn_string itself uses internally (autocommit, prepare_threshold=0,
+    dict_row) -- confirmed by reading langgraph-checkpoint-postgres's own source, not guessed."""
+    global _checkpointer
+    if _checkpointer is None:
+        conn = Connection.connect(
+            settings.database_url, autocommit=True, prepare_threshold=0, row_factory=dict_row
+        )
+        _checkpointer = PostgresSaver(conn)
+        _checkpointer.setup()
+    return _checkpointer
 
 
 class RedTeamGraphState(TypedDict):
@@ -138,6 +164,18 @@ def documentation_node(state: RedTeamGraphState) -> dict:
         return {"report": None, "report_error": f"{type(exc).__name__}: {exc}"}
 
 
+def route_after_documentation(state: RedTeamGraphState) -> str:
+    """Low/Medium -> published immediately, no human in the loop. Critical/High -> human_gate,
+    where the graph genuinely pauses (via the checkpointer) until a real approval resumes it --
+    see app/human_gate.py. A Documentation failure (report is None) also ends here; there's nothing
+    to gate on."""
+    if not state.get("report"):
+        return "end"
+    if state["report"]["status"] == "pending_approval":
+        return "human_gate"
+    return "end"
+
+
 def build_graph():
     run_migrations()  # idempotent -- safe to call on every process start, same as a normal app boot
 
@@ -147,6 +185,7 @@ def build_graph():
     graph.add_node("target_adapter", target_adapter_node)
     graph.add_node("judge", judge_node)
     graph.add_node("documentation", documentation_node)
+    graph.add_node("human_gate", human_gate_node)
 
     graph.set_entry_point("orchestrator")
     graph.add_edge("orchestrator", "red_team")
@@ -157,5 +196,10 @@ def build_graph():
         route_after_judge,
         {"documentation": "documentation", "orchestrator": "orchestrator", "end": END},
     )
-    graph.add_edge("documentation", END)
-    return graph.compile()
+    graph.add_conditional_edges(
+        "documentation",
+        route_after_documentation,
+        {"human_gate": "human_gate", "end": END},
+    )
+    graph.add_edge("human_gate", END)
+    return graph.compile(checkpointer=_get_checkpointer())

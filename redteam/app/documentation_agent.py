@@ -124,10 +124,21 @@ def document(record: ExploitRecord) -> VulnerabilityReport:
     severity = record.judge_verdict.severity or Severity.LOW  # Judge omitting severity is a real,
     # documented gap (ARCHITECTURE.md's AI-use disclosure) -- default low rather than crash, but this
     # should not happen once the Judge rubric reliably sets it.
+
+    # The severity branch itself, per ARCHITECTURE.md decision #5: Low/Medium auto-publish (no
+    # agent decision needed to skip review -- a wrong Low/Medium report costs little); Critical/High
+    # pause at the human_gate LangGraph interrupt (app/human_gate.py) before ever reaching
+    # `published`. This function only decides the STATUS a report starts at -- it never itself
+    # approves anything.
+    status = (
+        ReportStatus.AUTO_PUBLISHED
+        if severity in (Severity.LOW, Severity.MEDIUM)
+        else ReportStatus.PENDING_APPROVAL
+    )
     report = VulnerabilityReport(
         exploit_record_id=record.id,
         severity=severity,
-        status=ReportStatus.AUTO_PUBLISHED,  # severity-gating (Critical/High -> pending_approval) is Wednesday's work
+        status=status,
         **fields,
     )
     validate_report(report)

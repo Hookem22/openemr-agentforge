@@ -142,8 +142,7 @@ from Tuesday's plan)
   behavior, remediation recommendation). Data-quality validation (`validate_report()`: no blank
   required fields, no duplicate report per exploit) runs before insert, backed by a real DB `UNIQUE`
   constraint (`redteam/migrations/0002_documentation.sql`) as the actual guarantee. Severity-gated
-  publishing (Critical/High → human approval) is still Wednesday's work; every report reaches
-  `auto_published` directly today — a stated scope boundary, not an oversight.
+  publishing (Critical/High → human approval) is now real — see the human-gate entry below.
 - [x] **`redteam/app/graph.py`** — the real compiled LangGraph: `orchestrator → red_team →
   target_adapter → judge →(confirmed/partial) documentation`, `judge →(not_confirmed) orchestrator`,
   capped at `MAX_ITERATIONS_PER_CAMPAIGN = 3` — deliberately mirroring `agent/app/graph.py`'s
@@ -191,6 +190,39 @@ from Tuesday's plan)
   is never at risk of being lost because a report failed to generate afterward. Re-ran the fixed
   Documentation Agent directly against the previously-crashed exploit record: produced a full,
   real report on the first try.
+
+### Same day, continued further — human-approval gate (pulled forward from Wednesday's plan)
+
+- [x] **Spiked the mechanism in isolation first**, per the plan's own risk-mitigation strategy for
+  "the single highest-complexity unknown this week": a throwaway script proved `interrupt()` +
+  `Command(resume=...)` genuinely survives a process restart with a real `PostgresSaver` checkpointer
+  — two completely separate `PostgresSaver`/graph instances, one to pause, one to resume, simulating
+  two different processes rather than trusting in-memory continuity. Confirmed working before
+  touching the real graph at all.
+- [x] **`redteam/app/human_gate.py`** — the real interrupt node. `documentation_agent.py` got its
+  severity branch for real: Low/Medium → `auto_published` immediately (unchanged); Critical/High →
+  `pending_approval`, routed to `human_gate`, which calls `interrupt()` and genuinely pauses the
+  graph — durably, in Postgres, not in this process's memory — until
+  `redteam/scripts/approve_report.py <thread_id> approve|reject` resumes it, potentially from a
+  completely different process, minutes or days later.
+- [x] **`redteam/app/graph.py`** — added a long-lived `PostgresSaver`-backed checkpointer (built once
+  per process via `_get_checkpointer()`, deliberately *not* via the `with PostgresSaver.from_conn_string(...)`
+  context-manager pattern, which would close the connection the instant `build_graph()` returned —
+  exactly the kind of resource-lifecycle bug that would make an interrupt silently fail to actually
+  persist). `documentation → (auto_published) END`, `documentation → (pending_approval) human_gate →
+  END`. `redteam/scripts/run_campaign.py` now takes/prints a `thread_id` and prints the exact resume
+  command when a campaign pauses.
+- [x] **Proven live against a real, previously-undocumented finding** — not a synthetic test case:
+  a genuine HIGH-severity `state_corruption` partial finding from the very first session (before the
+  Documentation Agent existed) had no report yet. Ran it through the real `documentation_node` →
+  `human_gate_node` (the actual production functions, via a small test-entry graph, not
+  reimplemented): produced a detailed, accurate report on a real sulfonamide-allergy/Bactrim
+  prescribing conflict, correctly paused at `pending_approval`, and only flipped to `published` in
+  Postgres after an explicit `Command(resume=True)` approval from a separate invocation. Also
+  documented the one remaining distinct undocumented finding (`denial_of_service`, Medium — correctly
+  auto-published, no gate). **4 distinct vulnerability reports now on record** across 4 categories
+  (data exfiltration, identity/role exploitation, state corruption, denial of service) — exceeds the
+  assignment's minimum of 3.
 
 ## Checkpoints (from the assignment) — Week 1-2 history below
 
