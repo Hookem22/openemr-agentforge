@@ -149,16 +149,16 @@ meantime. This is exactly what the grader means by *"not fully PR blocking as su
 also directly improves item #2 (regression bound) and #10 (judge reproducibility) below, since it's the
 same underlying gate becoming real.
 
-**Status: code done 2026-07-21, branch protection pending.** Renamed `agent-tier2-scheduled.yml` →
-`agent-tier2.yml` and added a `pull_request` trigger alongside the existing daily schedule, so the full
-50-case golden set now runs (reusing the same CI service-account OAuth refresh-token mechanism already
-in place — no new secrets needed) on every PR, not just once a day. Added a `concurrency` group
-(`openemr-ci-oauth-token`, `cancel-in-progress: false`) so a PR run and the daily cron can never race to
-consume/rotate the same refresh token. `--push-to-langfuse` now only runs on the schedule trigger, not on
-PR runs, so feature-branch results don't pollute the live regression-alert metric. **Still needed:**
-actually marking this workflow's check as a required status check in GitHub branch protection — that's a
-repo-admin setting change outside what the CI-secrets-scoped PAT can do, and outside what should be
-changed without the repo owner's explicit go-ahead.
+**Status: done 2026-07-21.** Renamed `agent-tier2-scheduled.yml` → `agent-tier2.yml` and added a
+`pull_request` trigger alongside the existing daily schedule, so the full 50-case golden set now runs
+(reusing the same CI service-account OAuth refresh-token mechanism already in place — no new secrets
+needed) on every PR, not just once a day. Added a `concurrency` group (`openemr-ci-oauth-token`,
+`cancel-in-progress: false`) so a PR run and the daily cron can never race to consume/rotate the same
+refresh token. `--push-to-langfuse` now only runs on the schedule trigger, not on PR runs, so
+feature-branch results don't pollute the live regression-alert metric. Branch protection on `main` now
+requires both `tier1` and `tier2` as passing status checks before a PR can merge (configured via `gh api`
+after making the repo public — GitHub blocks required status checks on private repos for free-tier
+personal accounts). Verified end-to-end via a real test PR exercising the new `pull_request` trigger.
 
 ### 6. Reranker measurably improves grounding — **2/4**
 
@@ -307,7 +307,7 @@ hardened. Audit and add missing guards.
 | 2 | Regression bound tuned and enforced | 1/3 | **P1 — code done, live re-verify pending** | 1–2 |
 | 3 | CI pipeline extended | 1/2 | **P1** | 1.5–2 |
 | 4 | Integration tests with fixtures and stubs | 1/2 | **P1** | 2–3 |
-| 5 | HARD GATE: CI blocks regression | 2/4 | **P2 — code done, branch protection pending** | 3–5 |
+| 5 | HARD GATE: CI blocks regression | 2/4 | **P2 — done** | 3–5 |
 | 6 | Reranker measurably improves grounding | 2/4 | **P2** | 2–3 |
 | 7 | Full citation shape on every claim | 2/4 | **P2** | 3–4 |
 | 8 | Bounding-box overlay polished | 2/4 | **P2** | 6–10 |
