@@ -109,11 +109,15 @@ PROVIDE_ANSWER_TOOL = {
                         "source": {
                             "type": "object",
                             "description": (
-                                "Either a Week 1 FHIR citation ({resource_type, resource_id}), a "
+                                "Either a Week 1 FHIR citation ({resource_type, resource_id}) -- code "
+                                "deterministically completes this into the full unified Citation Contract "
+                                "shape afterward, so just resource_type/resource_id is enough here -- a "
                                 "no_data marker ({type: 'no_data', resource_type}), or -- for facts "
                                 "surfaced by the intake-extractor/evidence-retriever workers -- the "
                                 "unified citation copied exactly from that fact's own citation object "
-                                "({source_type, source_id, field_or_chunk_id}, plus bbox when present)."
+                                "(source_type, source_id, page_or_section, field_or_chunk_id, "
+                                "quote_or_value, plus bbox when present) -- never invent or alter any of "
+                                "these fields."
                             ),
                             "properties": {
                                 "resource_type": {
@@ -125,7 +129,9 @@ PROVIDE_ANSWER_TOOL = {
                                 "type": {"type": "string", "enum": ["no_data"]},
                                 "source_type": {"type": "string", "enum": ["document", "guideline"]},
                                 "source_id": {"type": "string"},
-                                "field_or_chunk_id": {"type": "string"},
+                                "page_or_section": {"type": "string", "description": "PDF page (document) or guideline section (guideline) -- copy exactly from the fact's own citation."},
+                                "field_or_chunk_id": {"type": "string", "description": "Which field/chunk this citation supports -- copy exactly from the fact's own citation."},
+                                "quote_or_value": {"type": "string", "description": "The literal quoted/extracted text this citation supports -- copy exactly from the fact's own citation."},
                                 "bbox": {
                                     **BBOX_SCHEMA,
                                     "description": (
@@ -161,10 +167,10 @@ Rules, no exceptions:
 - If an earlier message in this conversation is labeled "[Extracted from uploaded document ...]" or \
   "[Retrieved guideline evidence ...]", each line below that label is a JSON object with a `text` \
   fact and its own `citation`. When you cite one of these facts in provide_answer, copy that \
-  citation's source_type, source_id, field_or_chunk_id, AND bbox (when the citation has one) fields \
-  exactly as given -- never invent or alter them, and never add a bbox that wasn't already there. \
-  If a "[Retrieved guideline evidence]" label says no evidence was found, say so plainly rather than \
-  fabricating guideline-sourced guidance.
+  citation's source_type, source_id, page_or_section, field_or_chunk_id, quote_or_value, AND bbox \
+  (when the citation has one) fields exactly as given -- never invent or alter them, and never add a \
+  bbox that wasn't already there. If a "[Retrieved guideline evidence]" label says no evidence was \
+  found, say so plainly rather than fabricating guideline-sourced guidance.
 - You must end every turn by calling provide_answer -- this is the only way to respond.
 """
 
@@ -553,6 +559,35 @@ def execute_tools_node(state: AgentState) -> AgentState:
     return state
 
 
+def _complete_fhir_citation(source: dict, tool_results_this_turn: list[dict]) -> dict:
+    """Deterministically fills in the unified Citation Contract's remaining fields (source_type,
+    source_id, page_or_section, field_or_chunk_id, quote_or_value) on a FHIR-sourced claim's
+    source -- in code, not by asking the model to construct them itself. Same "deterministic,
+    boring code, not a second model call" principle verifier.py already uses: real live testing
+    found the model complies inconsistently when asked to spontaneously invent 3 new fields with
+    no natural "copy this" affordance, unlike a document/guideline citation, which the model only
+    ever copies verbatim from a citation object it's already handed. A no_data marker (nothing to
+    complete) and any non-FHIR source (already has source_type) pass through unchanged."""
+    if source.get("type") == "no_data" or not source.get("resource_type"):
+        return source
+    resource_id = source.get("resource_id")
+    date = next(
+        (
+            t.get("date") for t in tool_results_this_turn
+            if t.get("resource_type") == source["resource_type"] and t.get("id") == resource_id
+        ),
+        None,
+    )
+    return {
+        **source,
+        "source_type": source.get("source_type") or "fhir",
+        "source_id": source.get("source_id") or resource_id,
+        "page_or_section": source.get("page_or_section") or date or "n/a",
+        "field_or_chunk_id": source.get("field_or_chunk_id") or "n/a",
+        "quote_or_value": source.get("quote_or_value") or "n/a",
+    }
+
+
 @observe(name="verify_claims", capture_input=False, capture_output=False)
 def verify_node(state: AgentState) -> AgentState:
     tool_use = _final_tool_use(state)
@@ -564,7 +599,10 @@ def verify_node(state: AgentState) -> AgentState:
         evidence_snippets=state["evidence_snippets"],
         empty_evidence=state["evidence_empty"],
     )
-    state["verified_claims"] = result.verified_claims
+    state["verified_claims"] = [
+        {**c, "source": _complete_fhir_citation(c["source"], state["tool_results_this_turn"])}
+        for c in result.verified_claims
+    ]
     state["stripped_claims"] = result.stripped_claims
     if tool_use is not None:
         # Anthropic requires every tool_use block to be immediately followed by its tool_result in

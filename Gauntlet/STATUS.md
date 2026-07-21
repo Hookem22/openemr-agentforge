@@ -1037,4 +1037,20 @@ Remediation, in priority order (lowest rubric score earned first, per the plan d
    `reranker_filtered_count` (fusion-stage candidates rerank itself vetoed below
    `MIN_RELEVANCE_SCORE`) on every call. 3 new tests confirm the measurement is computed correctly.
    Tier 1 suite: **126 tests**; ruff, mypy, bandit, pip-audit all clean.
-7. Remaining P2/P3 items per the plan doc, in order.
+   Confirmed with a real watched GitHub Actions run: commit `724f271b`, CI run
+   [`29863043521`](https://github.com/Hookem22/openemr-agentforge/actions/runs/29863043521) — green.
+7. **P2 #7 — Full citation shape on every claim (2/4 → done, 2026-07-21, live-verified twice).**
+   Real gap: `golden_checks.py`'s `citation_present` only checked `source_id` truthiness, so the
+   Citation Contract's 5-field shape was never actually proven complete either way. First fix
+   attempt asked the model to construct the 3 FHIR-missing fields itself — **a live 50-case run
+   measured this failing** (`citation_present` dropped 100%→94%, tripping the 5-point regression
+   bound), exactly the "real gap" the plan doc predicted. Root cause: asking a model to invent
+   fields with no "copy this" affordance is materially less reliable than asking it to copy an
+   existing citation object verbatim (which document/guideline claims already do, and which a live
+   run confirmed complies fine). Fixed by moving completion to code instead: `verify_node`'s new
+   `_complete_fhir_citation()` deterministically fills in the missing fields on every FHIR-sourced
+   verified claim (`page_or_section` from the resource's own `date` field, else `"n/a"`) — same
+   "deterministic, boring code, not a second model call" principle `verifier.py` already uses.
+   Re-ran the full 50-case golden set live after this fix: **100% on every rubric.** 7 new unit
+   tests. Tier 1 suite: **139 tests**; ruff, mypy, bandit, pip-audit all clean.
+8. Remaining P2/P3 items per the plan doc, in order.

@@ -215,6 +215,22 @@ will likely surface real gaps — e.g. FHIR-sourced citations may have no natura
 `field_or_chunk_id` value today. Establish an explicit convention for those (e.g. `"n/a"` rather than
 silently absent) and fix any code path that doesn't populate it.
 
+**Status: done 2026-07-21, live-verified twice.** Added `golden_checks.py::_citation_is_complete()`
+asserting all 5 unified fields are present and non-empty on every verified claim (a `no_data` marker is
+exempt — nothing to cite). First attempt asked the model to *construct* the 3 FHIR-missing fields itself
+via `PROVIDE_ANSWER_TOOL`'s schema + `SYSTEM_PROMPT` — a live 50-case run measured this failing
+(`citation_present` dropped 100%→94%, tripping the 5-point regression bound), exactly the "real gap"
+predicted above, and exactly why this needed live verification rather than just code review. Root cause:
+asking a model to invent fields with no "copy this" affordance (unlike document/guideline citations, which
+it only ever copies from a citation object it's handed) is a materially less reliable instruction-following
+task. Fixed by moving completion to code instead: `verify_node`'s new `_complete_fhir_citation()`
+deterministically fills in `source_type`/`source_id`/`page_or_section` (from the resource's own `date`
+field, else `"n/a"`)/`field_or_chunk_id`/`quote_or_value` on every FHIR-sourced verified claim — same
+"deterministic, boring code" principle `verifier.py` already uses. Re-ran the full 50-case golden set live
+after this fix: **100% on every rubric.** 7 new unit tests (`test_golden_checks_unit.py`,
+`test_verify_node_unit.py`) plus a strengthened `test_full_flow_integration.py` assertion. Tier 1 suite:
+139 tests.
+
 **Estimate: 3–4 hours** (eval tightening + probable code fixes it surfaces).
 
 ### 8. Bounding-box overlay polished — **2/4**
@@ -357,7 +373,7 @@ hardened. Audit and add missing guards.
 | 4 | Integration tests with fixtures and stubs | 1/2 | **P1 — done** | 2–3 |
 | 5 | HARD GATE: CI blocks regression | 2/4 | **P2 — done** | 3–5 |
 | 6 | Reranker measurably improves grounding | 2/4 | **P2 — done** | 2–3 |
-| 7 | Full citation shape on every claim | 2/4 | **P2** | 3–4 |
+| 7 | Full citation shape on every claim | 2/4 | **P2 — done, live-verified** | 3–4 |
 | 8 | Bounding-box overlay polished | 2/4 | **P2 — done, live-tested** | 6–10 |
 | 9 | Handoffs fully traceable | 2/3 | **P2** | 2–4 |
 | 10 | Judge reproducible; results recorded | 2/3 | **P2** | 1–2 |

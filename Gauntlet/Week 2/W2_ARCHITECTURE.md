@@ -190,11 +190,30 @@ Week 2 introduces one unified citation shape used by every source type:
 
 **Migration note**: Week 1's `verifier.py` checks claims against a `(resource_type, resource_id)` tuple set.
 This is a strict subset of the new shape (`source_type="fhir"`, `source_id=resource_id`,
-`page_or_section=date`) — existing FHIR-tool citations are mapped into the new shape at the point they're
-built (`tools.py`'s existing `resource_type`/`id`/`date` fields), not replaced. `verifier.py` is extended
-(not rewritten) to check the broader set of `(source_type, source_id)` pairs now valid: FHIR tool results
-(existing), `extracted_facts` (new, from §2), and `evidence_snippets` (new, from §4). This is a backward-
-compatible additive change — no existing citation-producing code path is removed.
+`page_or_section=date`). `verifier.py` is extended (not rewritten) to check the broader set of
+`(source_type, source_id)` pairs now valid: FHIR tool results (existing), `extracted_facts` (new, from §2),
+and `evidence_snippets` (new, from §4). This is a backward-compatible additive change — no existing
+citation-producing code path is removed or has its matching key changed.
+
+**Full-shape enforcement (grader-flagged fix, Final feedback)**: this section previously claimed FHIR
+citations were "mapped into the new shape at the point they're built," but that mapping didn't actually
+exist — `PROVIDE_ANSWER_TOOL`'s schema never even declared `page_or_section`/`quote_or_value` slots, and
+`golden_checks.py`'s `citation_present` check only verified `source_id` truthiness, so the contract was
+never actually proven complete either way. Fixed in two parts:
+- `agent/eval/golden_checks.py`'s `_citation_is_complete()` now asserts all 5 unified fields are present
+  and non-empty on every verified claim (a `no_data` marker is exempt — it has nothing to cite, a distinct
+  concept `PROVIDE_ANSWER_TOOL`'s own schema already draws the same line around).
+- For document/guideline claims, the model already only ever *copies* a citation object it's handed
+  verbatim — a live golden-set run confirmed this complies reliably. For FHIR claims, the first attempt
+  asked the model to *construct* `source_type`/`page_or_section`/`field_or_chunk_id`/`quote_or_value`
+  itself; a live golden-set run measured this failing (`citation_present` dropped from 100% to 94%,
+  tripping the 5-point regression bound) — asking a model to invent fields with no "copy this" affordance
+  is a fundamentally less reliable instruction-following task than asking it to copy one. Fixed by moving
+  the completion to code instead: `verify_node`'s new `_complete_fhir_citation()` deterministically fills
+  in the missing fields on every verified FHIR-sourced claim (`page_or_section` from that resource's own
+  `date` field when available, `"n/a"` otherwise) — same "deterministic, boring code, not a second model
+  call" principle `verifier.py` already uses. Re-ran the full 50-case golden set live after this fix:
+  100% on every rubric.
 
 **Visual bounding-box overlay** (required, not stretch; grader-flagged fix, Final feedback — this section
 previously described the feature as done when it wasn't actually built in the UI). Clicking `[view source]`

@@ -185,7 +185,11 @@ CITATION_SCHEMA = {
         "field_or_chunk_id": {"type": "string", "description": "Which field this citation supports, e.g. 'test_name' or 'value'."},
         "quote_or_value": {"type": "string", "description": "The literal text you read off the page for this field."},
     },
-    "required": ["source_type", "source_id"],
+    # All 5 required (grader-flagged fix, Final feedback -- "every clinical claim carries...the
+    # full required shape"): page_or_section/field_or_chunk_id/quote_or_value were previously
+    # optional, so real extractions could legally omit them even though every downstream citation
+    # consumer (the click-to-source overlay, the eval gate's citation_present check) expects them.
+    "required": ["source_type", "source_id", "page_or_section", "field_or_chunk_id", "quote_or_value"],
 }
 
 

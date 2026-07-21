@@ -80,6 +80,22 @@ def _scan_for_phi(calls: list[tuple[str, dict]], phi_markers: list[str]) -> list
     return [m for m in phi_markers if m.lower() in haystack]
 
 
+# The Citation Contract's full 5-field unified shape (grader-flagged fix, Final feedback: the old
+# citation_present check only verified source_id truthiness, so the contract was never actually
+# proven complete either way -- "only partially proven").
+_UNIFIED_CITATION_FIELDS = ("source_type", "source_id", "page_or_section", "field_or_chunk_id", "quote_or_value")
+
+
+def _citation_is_complete(source: dict) -> bool:
+    """A no_data marker ({type: 'no_data', resource_type}) is a distinct, valid concept -- it
+    marks that nothing was found, so there is nothing to cite -- and is exempt from the other 5
+    fields (PROVIDE_ANSWER_TOOL's own schema draws the same distinction). Every other claim,
+    FHIR-sourced included, must carry all 5 unified fields, non-empty."""
+    if source.get("type") == "no_data":
+        return bool(source.get("resource_type"))
+    return all(source.get(f) not in (None, "") for f in _UNIFIED_CITATION_FIELDS)
+
+
 def _keyword_check(text: str, expect: dict, conditional_check_text: str | None = None) -> tuple[bool, str]:
     """`conditional_check_text` defaults to `text` (verified claims only) -- callers pass a wider
     text (e.g. verified + stripped claims, see run_chat_case) when the conditional_check is testing
@@ -150,7 +166,7 @@ def run_extraction_case(case: dict) -> RubricResult:
         result.error = str(exc)
         return result  # fail closed -- every other rubric stays False
 
-    result.citation_present = bool(facts) and all(f["citation"].get("source_id") for f in facts)
+    result.citation_present = bool(facts) and all(_citation_is_complete(f["citation"]) for f in facts)
 
     combined = " ".join(f["text"] for f in facts)
     ok, reason = _keyword_check(combined, expect)
@@ -182,9 +198,7 @@ def run_evidence_retrieval_case(case: dict) -> RubricResult:
         if not result.factually_consistent:
             result.detail["factually_consistent_reason"] = f"expected empty result, got {len(chunks)} chunks"
     else:
-        result.citation_present = bool(chunks) and all(
-            c.citation.source_type == "guideline" and c.citation.source_id for c in chunks
-        )
+        result.citation_present = bool(chunks) and all(_citation_is_complete(c.citation.model_dump()) for c in chunks)
         chunk_ids = [c.chunk_id for c in chunks]
         expected_top = expect.get("expected_top_chunk_id")
         if expected_top:
@@ -223,7 +237,7 @@ def run_chat_case(case: dict, patient_id: str, bearer_token: str, monkeypatch) -
     total = len(verified) + len(stripped)
     strip_rate = (len(stripped) / total) if total else 0.0
 
-    result.citation_present = bool(verified) and all(c.get("source") for c in verified)
+    result.citation_present = bool(verified) and all(_citation_is_complete(c.get("source") or {}) for c in verified)
 
     combined = " ".join(c["text"] for c in verified)
     combined_with_stripped = combined + " " + " ".join(c["text"] for c in stripped)
