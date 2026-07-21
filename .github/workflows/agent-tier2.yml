@@ -1,31 +1,40 @@
-name: Agent Tier 2 (golden set, scheduled)
+name: Agent Tier 2 (golden set)
 
-# The real-API half of server-side CI (Gauntlet/Week 2/STATUS.md's "MVP grader feedback" section):
-# runs the 50-case golden set against the real Anthropic + Voyage APIs and the live deployed
-# OpenEMR instance, on a schedule rather than per-push. Not run per-PR because it needs a live
-# bearer token (see the auth step below) and real API calls -- see agent/eval/run_eval_gate.py's
-# module docstring for why Tier 1 (agent-tier1.yml) already covers the most dangerous regression
-# class deterministically, and Tier 2's job here is behavioral/quality regressions instead
-# (extraction accuracy, retrieval relevance, citation correctness).
+# The real-API half of server-side CI (Gauntlet/Week 2/STATUS.md's "MVP grader feedback" and "Final
+# grader feedback" sections): runs the 50-case golden set against the real Anthropic + Voyage APIs
+# and the live deployed OpenEMR instance. Runs on BOTH a daily schedule AND every pull request --
+# this is the assignment's HARD GATE ("during grading, we will introduce a small regression and
+# confirm your CI gate fails"), which a schedule-only trigger cannot satisfy: GitHub branch
+# protection can only require a status check that actually ran *on that PR*, not one that happened
+# to run recently on a cron. The daily schedule stays too, since it also catches a live regression
+# between PRs (e.g. an Anthropic model version change, a corpus edit) that no PR would trigger.
 #
 # The 50-case golden set is entirely read-only/stateless against OpenEMR by design (extraction
 # cases skip persistence, evidence-retrieval never touches OpenEMR, chat cases only use read-only
 # FHIR tools) -- see golden_checks.py's run_extraction_case docstring -- so running it against the
-# live production instance on a schedule doesn't create/pollute patient data.
+# live production instance on every PR, same as on the schedule, doesn't create/pollute patient data.
 #
 # Auth: a dedicated CI service-account OAuth2 client (registered against the deployed instance,
 # see STATUS.md), using the refresh_token grant to mint a fresh access token each run rather than
 # any interactive flow. OpenEMR's OAuth2 server rotates refresh tokens on every use (the old one is
 # invalidated), so this workflow must write the newly-issued refresh token back to
-# OPENEMR_CI_REFRESH_TOKEN before it does anything else -- otherwise the *next* scheduled run would
-# fail using a token this run already consumed. That write needs GH_SECRETS_ROTATION_PAT (a
-# fine-grained PAT scoped to just this repo's Actions secrets, since the workflow's own automatic
-# GITHUB_TOKEN cannot write repo secrets).
+# OPENEMR_CI_REFRESH_TOKEN before it does anything else -- otherwise the *next* run (scheduled or
+# PR-triggered) would fail using a token this run already consumed. That write needs
+# GH_SECRETS_ROTATION_PAT (a fine-grained PAT scoped to just this repo's Actions secrets, since the
+# workflow's own automatic GITHUB_TOKEN cannot write repo secrets). Now that two triggers can fire
+# this workflow, `concurrency:` below serializes every run of this workflow (across schedule, PR,
+# and manual dispatch alike) so two runs can never race to consume/rotate the same refresh token --
+# without it, a PR opened at the same moment as the daily cron could have one run fail outright.
 
 on:
   schedule:
     - cron: "0 13 * * *" # once daily, 13:00 UTC
+  pull_request:
   workflow_dispatch: {} # manual trigger, e.g. for verifying this workflow itself
+
+concurrency:
+  group: openemr-ci-oauth-token
+  cancel-in-progress: false
 
 jobs:
   tier2:
@@ -82,5 +91,13 @@ jobs:
 
           echo "DEV_BEARER_TOKEN=$ACCESS_TOKEN" >> "$GITHUB_ENV"
 
+      # --push-to-langfuse only on the schedule: that alert tracks *live* regression between PRs, so
+      # a PR run (which may be mid-feature-branch, expected to differ) shouldn't feed into it -- the
+      # PR run's job here is purely the hard-gate pass/fail, same as Tier 1's role for every push.
       - name: Run the 50-case golden set against the real APIs
-        run: python eval/run_eval_gate.py --skip-tier1 --push-to-langfuse
+        run: |
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            python eval/run_eval_gate.py --skip-tier1 --push-to-langfuse
+          else
+            python eval/run_eval_gate.py --skip-tier1
+          fi

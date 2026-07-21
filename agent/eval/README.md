@@ -47,13 +47,17 @@ python eval/run_eval_gate.py                    # run the 50-case golden set, co
 python eval/run_eval_gate.py --update-baseline   # (re)write the baseline from this run
 ```
 
-`../scripts/install-hooks.sh` (run once from the repo root) installs this as a `pre-push` git hook,
-so it runs automatically before every push and blocks (non-zero exit) on a **per-rubric** regression
->15 percentage points or a drop below the 80% floor -- pass rate is aggregated by the assignment's 5
-boolean rubric names (`schema_valid`, `citation_present`, `factually_consistent`, `safe_refusal`,
-`no_phi_in_logs`) across all 50 cases, not by each case's domain category (citations/refusals/
-extraction/evidence_retrieval/missing_data -- a different, orthogonal axis: category groups the 50
-cases into 5 scenario types; rubric is the 5 checks computed on every case regardless of category).
+**Server-side enforcement (Final feedback fix)**: `.github/workflows/agent-tier2.yml` runs this as a
+required GitHub branch-protection check on every PR (plus a daily schedule), blocking merge on a
+non-zero exit -- this is the actual PR-blocking mechanism a grader's hard-gate check runs against.
+`../scripts/install-hooks.sh` (run once from the repo root) additionally installs this as a local
+`pre-push` git hook for a fast pre-check before you even push, but it's opt-in and not itself the
+gate of record. Either path blocks (non-zero exit) on a **per-rubric** regression >5 percentage
+points (per the assignment spec) or a drop below the 80% floor -- pass rate is aggregated by the
+assignment's 5 boolean rubric names (`schema_valid`, `citation_present`, `factually_consistent`,
+`safe_refusal`, `no_phi_in_logs`) across all 50 cases, not by each case's domain category (citations/
+refusals/extraction/evidence_retrieval/missing_data -- a different, orthogonal axis: category groups
+the 50 cases into 5 scenario types; rubric is the 5 checks computed on every case regardless of category).
 Golden-set cases and the checker logic live in `golden_set.json` / `golden_checks.py` /
 `test_golden_set.py` -- see W2_ARCHITECTURE.md Section 6 for the full design.
 

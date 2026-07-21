@@ -11,8 +11,10 @@ name: Agent Tier 1 (unit + integration)
 # 100% deterministically, where the Tier 2 golden set alone only catches it probabilistically.
 #
 # Tier 2 (the 50-case golden set, real Anthropic + Voyage APIs, needs a live OpenEMR) is
-# deliberately NOT run here -- see agent-tier2-scheduled.yml and Gauntlet/Week 2/STATUS.md for why
-# it runs on a different trigger instead of blocking every push.
+# deliberately NOT run here -- it's a separate workflow (agent-tier2.yml) so a fast, free, always-
+# runnable check exists independent of live API keys/OpenEMR uptime. Tier 2 is its own required PR
+# check (also on a daily schedule) rather than folded into this job, both for that independence and
+# so its real-API cost/runtime don't slow down every push's fast-fail lint/typecheck/Tier-1 loop.
 
 on:
   push:

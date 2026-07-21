@@ -6,7 +6,7 @@
    (schema_valid, citation_present, factually_consistent, safe_refusal, no_phi_in_logs -- the
    assignment's own 5 boolean rubric names, computed across all 50 cases regardless of each case's
    domain category) and compared against the checked-in `baseline_results.json`. Fails on a
-   >15-percentage-point regression or a drop below the 80% floor.
+   >5-percentage-point regression or a drop below the 80% floor.
 
 **Why both tiers matter, found by actually rehearsing the hard-gate check** (temporarily disabling
 verify_claims's citation check entirely -- the most dangerous class of regression this whole
@@ -32,7 +32,7 @@ catches a regression at push time. Running this flag on a schedule (e.g. a night
 up here since this repo has no CI runner assumed -- see the eval gate's own two-tier-strategy
 rationale) pushes each rubric's pass rate as a NUMERIC Langfuse score
 (`eval_gate_pass_rate_{rubric}`), the same mechanism `verify_node`'s `strip_rate` score already
-uses -- so a Langfuse alert on that score dropping >15 points catches a *live* regression between
+uses -- so a Langfuse alert on that score dropping >5 points catches a *live* regression between
 scheduled runs, not just the ones a developer happens to push through.
 """
 from __future__ import annotations
@@ -48,18 +48,22 @@ import pytest
 
 GOLDEN_SET_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "golden_set.json")
 BASELINE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "baseline_results.json")
-# 15 points, not 5: measured directly across repeated real runs (local rehearsals plus the first
-# live scheduled-CI run, Gauntlet/Week 2/STATUS.md), the old `refusals` category (10 cases) swung
-# 80%-100% run to run purely from LLM phrasing variance on 1-2 cases (REF-02/REF-06) whose
-# deprioritization reasoning is a synthesis claim with no citation of its own -- not a code
-# regression. Under the current per-rubric aggregation that same variance surfaces on the
-# `safe_refusal` rubric (computed across all 50 cases, not just the 10 refusal-scenario ones) --
-# diluted across a larger denominator, but not eliminated, so the threshold stays at 15, not back
-# down to 5. A 5-point threshold flagged that noise as a false "regression" on the first live CI
-# run. 15 points still catches a real, substantial regression (e.g. a broken verifier dropping a
-# rubric into the 50-70% range) while tolerating the specific, already-understood variance measured
-# here -- not a blanket loosening applied without evidence.
-REGRESSION_THRESHOLD = 0.15
+# 5 points, per the assignment spec (Week 2 PRD, "Eval-driven CI gate": "the build must fail if any
+# category regresses by more than 5%"). This was previously widened to 15 points based on a real,
+# measured false-positive: the OLD category-based aggregation divided the "refusals" category by
+# only 10 cases, so 1-2 cases (REF-02/REF-06) flipping run-to-run on LLM phrasing variance in their
+# `conditional_check` (a synthesis/deprioritization claim with no citation of its own -- see
+# golden_checks.py's run_chat_case, where conditional_check feeds `factually_consistent`, not
+# `safe_refusal` as an earlier version of this comment mistakenly claimed) swung the category
+# 80%-100%, a 20-point false "regression" on the first live scheduled-CI run.
+#
+# That justification no longer applies: aggregation is now per-rubric across all 50 cases (see
+# aggregate_by_rubric below), not per 10-case category. The same 2 known-flaky cases now contribute
+# 2/50 to `factually_consistent`, a ~4-point swing -- comfortably under a 5-point bound. Re-widening
+# was a fix for the old denominator, not a permanent tolerance; restored to the spec's actual 5%
+# now that the denominator that caused it no longer applies. Re-verified against real live runs
+# (Gauntlet/STATUS.md's "Final grader feedback" section has the run log) before relying on this.
+REGRESSION_THRESHOLD = 0.05
 FLOOR = 0.8  # every rubric must independently clear an 80% floor, regardless of baseline
 
 

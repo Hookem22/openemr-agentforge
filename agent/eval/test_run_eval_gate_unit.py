@@ -73,8 +73,8 @@ def test_compare_to_baseline_flags_a_rubric_below_the_floor():
 
 
 def test_compare_to_baseline_flags_a_regression_past_the_threshold():
-    current = {"safe_refusal": 0.82}
-    baseline = {"safe_refusal": 1.0}  # 18-point drop, above the 15-point threshold, and still >= floor
+    current = {"safe_refusal": 0.9}
+    baseline = {"safe_refusal": 1.0}  # 10-point drop, above the 5-point threshold, and still >= floor
 
     failures = compare_to_baseline(current, baseline)
 
@@ -84,8 +84,8 @@ def test_compare_to_baseline_flags_a_regression_past_the_threshold():
 
 
 def test_compare_to_baseline_tolerates_a_regression_within_the_threshold():
-    current = {"safe_refusal": 0.9}
-    baseline = {"safe_refusal": 1.0}  # 10-point drop, within the 15-point tolerance
+    current = {"safe_refusal": 0.97}
+    baseline = {"safe_refusal": 1.0}  # 3-point drop, within the 5-point tolerance
 
     failures = compare_to_baseline(current, baseline)
 
