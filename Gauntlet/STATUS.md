@@ -983,4 +983,21 @@ Remediation, in priority order (lowest rubric score earned first, per the plan d
      2-point drop, comfortably under the new 5% bound. `EVAL GATE PASSED`. GitHub confirmed
      `mergeStateStatus: CLEAN`/`mergeable: MERGEABLE`, then the PR was merged (squash) and its branch
      deleted.
-3. Remaining P2/P3 items per the plan doc, in order.
+3. **P1 #3 — CI pipeline extended (1/2 → done, 2026-07-21).** Real gap: schema validation, extraction
+   regression tests, and dependency audit/security scan already ran on every PR, but no test asserted
+   the *shape* of the state object handed between supervisor and workers. Added `agent/eval/
+   test_supervisor_worker_contract_unit.py` (8 tests) — pins `AgentState`'s exact field set, each
+   worker's precondition guards, and its postcondition guarantees on both the success and
+   graceful-degradation paths. Hand-verified: broke `document_processed`'s assignment, confirmed 2
+   tests failed, reverted.
+4. **P1 #4 — Integration tests with fixtures and stubs (1/2 → done, 2026-07-21).** Real gap:
+   `test_ingestion_integration.py` and `test_rag_integration.py` each stub their own stage in
+   isolation; nothing chained ingestion → routing → retrieval → a grounded final answer in one turn.
+   Added `agent/eval/test_full_flow_integration.py` — drives the real compiled `run_turn` graph
+   through a document upload plus an evidence-needing question, everything external stubbed; its fake
+   Anthropic client dynamically parses the real citations the pipeline injected (not hardcoded) to
+   build a `provide_answer` call citing all 3 source types (FHIR, document, guideline) in one turn.
+   Hand-verified: disabled the document/guideline citation branch in `verifier.py`, confirmed the test
+   failed with the expected stripped-claim reason, reverted.
+   Full Tier 1 suite now **120 tests** (was 111); ruff, mypy, bandit, pip-audit all clean.
+5. Remaining P2/P3 items per the plan doc, in order.

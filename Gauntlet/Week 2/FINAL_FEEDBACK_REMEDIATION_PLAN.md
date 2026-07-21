@@ -101,6 +101,14 @@ exercise the path.
 
 **Estimate: 1.5–2 hours.**
 
+**Status: done 2026-07-21.** Added `agent/eval/test_supervisor_worker_contract_unit.py` (8 tests): pins
+`AgentState`'s exact field set; asserts `supervisor_node` emits a well-formed `handoff_log` entry;
+asserts `intake_extractor_node`/`evidence_retriever_node`'s precondition guards (raises without
+`pending_document`/`patient_pid`) and postcondition guarantees on both the success and
+graceful-degradation paths (a raised `IngestionError`/`RuntimeError` mid-worker must not crash the
+turn). Hand-verified by temporarily breaking `document_processed`'s assignment in `graph.py` and
+confirming 2 of the new tests failed, then reverting.
+
 ### 4. Integration tests with fixtures and stubs — **1/2**
 
 **Rubric:** *Integration tests exercise the full ingestion-to-answer path using fixture documents and
@@ -113,6 +121,16 @@ final grounded answer end-to-end with everything stubbed.
 
 **Fix:** Add one true end-to-end integration test that drives the full pipeline through stubbed
 Anthropic/Voyage/OpenEMR calls and asserts a grounded final answer with citations comes out the other end.
+
+**Status: done 2026-07-21.** Added `agent/eval/test_full_flow_integration.py`: drives the real compiled
+`run_turn` graph through a document upload + evidence-needing question in one turn (all 3 stages
+chained — ingestion, RAG, FHIR tool call), everything external stubbed (Anthropic vision + chat calls,
+OpenEMR HTTP, Voyage). The fake chat-loop Anthropic client dynamically parses the real citations the
+pipeline injected as context (rather than hardcoding them) to build a `provide_answer` call citing all
+3 source types (FHIR, document, guideline) in one turn, then asserts all 3 claims survive verification
+unstripped. Hand-verified by temporarily disabling the document/guideline citation branch in
+`verifier.py` and confirming the test failed with the expected stripped-claim reason, then reverting —
+the same class of regression the golden set's own hard-gate rehearsal targets.
 
 **Estimate: 2–3 hours.**
 
@@ -305,8 +323,8 @@ hardened. Audit and add missing guards.
 |---|---|---|---|---|
 | 1 | OpenAPI spec published and verified | 0/2 | **P0 — done 2026-07-21** | 1–1.5 |
 | 2 | Regression bound tuned and enforced | 1/3 | **P1 — code done, live re-verify pending** | 1–2 |
-| 3 | CI pipeline extended | 1/2 | **P1** | 1.5–2 |
-| 4 | Integration tests with fixtures and stubs | 1/2 | **P1** | 2–3 |
+| 3 | CI pipeline extended | 1/2 | **P1 — done** | 1.5–2 |
+| 4 | Integration tests with fixtures and stubs | 1/2 | **P1 — done** | 2–3 |
 | 5 | HARD GATE: CI blocks regression | 2/4 | **P2 — done** | 3–5 |
 | 6 | Reranker measurably improves grounding | 2/4 | **P2** | 2–3 |
 | 7 | Full citation shape on every claim | 2/4 | **P2** | 3–4 |
