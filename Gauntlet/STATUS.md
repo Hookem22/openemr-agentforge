@@ -1076,4 +1076,6 @@ Remediation, in priority order (lowest rubric score earned first, per the plan d
    `run_eval_gate.py`'s own docstring already documents, not a regression (no claim/citation logic
    was touched — this is a pure observability change). Tier 1 suite: 139 tests; ruff, mypy, bandit,
    pip-audit all clean.
+   Confirmed with a real watched GitHub Actions run: commit `8bd244f9`, CI run
+   [`29867704230`](https://github.com/Hookem22/openemr-agentforge/actions/runs/29867704230) — green.
 9. Remaining P2 items per the plan doc (#10 judge-results artifact, #11 Langfuse dashboard config), in order.
