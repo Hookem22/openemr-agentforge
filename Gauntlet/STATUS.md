@@ -1000,4 +1000,7 @@ Remediation, in priority order (lowest rubric score earned first, per the plan d
    Hand-verified: disabled the document/guideline citation branch in `verifier.py`, confirmed the test
    failed with the expected stripped-claim reason, reverted.
    Full Tier 1 suite now **120 tests** (was 111); ruff, mypy, bandit, pip-audit all clean.
+   Confirmed with a real watched GitHub Actions run: commit `3243b120`, CI run
+   [`29856384040`](https://github.com/Hookem22/openemr-agentforge/actions/runs/29856384040) — green in
+   1m31s.
 5. Remaining P2/P3 items per the plan doc, in order.
