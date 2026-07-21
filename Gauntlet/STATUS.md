@@ -1053,4 +1053,27 @@ Remediation, in priority order (lowest rubric score earned first, per the plan d
    "deterministic, boring code, not a second model call" principle `verifier.py` already uses.
    Re-ran the full 50-case golden set live after this fix: **100% on every rubric.** 7 new unit
    tests. Tier 1 suite: **139 tests**; ruff, mypy, bandit, pip-audit all clean.
-8. Remaining P2/P3 items per the plan doc, in order.
+   Confirmed with a real watched GitHub Actions run: commit `b3134e39`, CI run
+   [`29865267880`](https://github.com/Hookem22/openemr-agentforge/actions/runs/29865267880) — green.
+8. **P2 #9 — Handoffs fully traceable (2/3 → done, 2026-07-21, live-verified).** Real gap: the
+   supervisor and its two worker spans were siblings under the trace root correlated only by a
+   shared `handoff_index` metadata field, not literal parent/child OTel spans — a defensible design
+   note in `Week 2/OBSERVABILITY.md`, but the rubric's literal ask ("each worker invocation is a
+   child span of the supervisor span") wasn't met. Fixed using Langfuse's `trace_context` mechanism
+   (`{trace_id, parent_span_id}`, plain strings — independent of Python call-stack nesting, needed
+   since LangGraph invokes `supervisor`/`intake_extractor`/`evidence_retriever` as separate graph
+   steps, not one calling the other): `supervisor_node` reads its own just-logged span/trace id and
+   stores it in a new `AgentState` field, `handoff_span_context`; `intake_extractor_node`/
+   `evidence_retriever_node` switched from the plain `@observe` decorator to an explicit
+   `get_client().start_as_current_observation(trace_context=...)` block, nesting each worker's span
+   under the exact supervisor decision that routed to it. `handoff_index` is kept alongside this as
+   a simpler secondary correlation mechanism, not made redundant by it. 6 test files needed updating
+   for the new required `get_client()` methods (fake-client shape changed); `test_handoff_index_unit.py`
+   also gained assertions on the real `trace_context` passed to each worker's span, not just the
+   shared index. **Live-verified**: a full 50-case golden-set run against the real Langfuse SDK
+   exercised both new code paths with no exceptions — 47/50 first run, 48/50 on an immediate re-run,
+   the 2 residual misses (REF-06, MSD-07) matching the pre-existing LLM-phrasing-variance flakiness
+   `run_eval_gate.py`'s own docstring already documents, not a regression (no claim/citation logic
+   was touched — this is a pure observability change). Tier 1 suite: 139 tests; ruff, mypy, bandit,
+   pip-audit all clean.
+9. Remaining P2 items per the plan doc (#10 judge-results artifact, #11 Langfuse dashboard config), in order.

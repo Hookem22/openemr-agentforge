@@ -19,12 +19,20 @@ definitions to enter in the Langfuse UI, plus what's already emitted in code for
 | `evidence_retriever` (Section 9 calls this `evidence_retrieval` conceptually -- same span, actual code name is `evidence_retriever`) | `agent/app/graph.py::evidence_retriever_node` | outcome (`success`, `result_count`), `handoff_index` (metadata) |
 | `hybrid_retrieval` (child of `evidence_retriever`, added 2026-07-21 -- grader-flagged fix, Final feedback: rerank was wired into `retrieve()` but nothing measured whether it was doing anything) | `agent/app/rag.py::retrieve` | `fused_candidates`, `results`, `reranker_changed_top_k` (bool -- did rerank actually reorder the fusion-stage's naive top-k), `reranker_filtered_count` (candidates that survived fusion but scored below `MIN_RELEVANCE_SCORE` on rerank -- a real veto), `top_relevance_score` |
 
-`handoff_index` (added 2026-07-16): the position of a supervisor decision in `handoff_log`. The
-supervisor span and whichever worker span it routed to share the same value, so a grader can group
-Langfuse spans by this field to reconstruct "supervisor decision #N routed to worker X" even though
-LangGraph invokes them as sibling steps, not one calling the other -- see `W2_ARCHITECTURE.md`
-Section 9's distributed-tracing note for the full reasoning on why they aren't literal parent/child
-OTel spans.
+**Real parent/child nesting (added 2026-07-21 -- grader-flagged fix, Final feedback)**: the
+`supervisor` span and whichever worker span it routes to (`intake_extractor`/`evidence_retriever`)
+now nest as literal OTel parent/child, not just siblings under the trace root -- despite LangGraph
+invoking them as separate graph steps rather than one calling the other. `supervisor_node` reads its
+own span/trace id right after logging its routing decision and stores it in state
+(`handoff_span_context`); the worker opens its span via `start_as_current_observation(trace_context=
+...)` instead of the plain `@observe` decorator, nesting it under that exact decision. See
+`W2_ARCHITECTURE.md` Section 9 for the full mechanism.
+
+`handoff_index` (added 2026-07-16, kept alongside the nesting above -- not made redundant by it): the
+position of a supervisor decision in `handoff_log`. The supervisor span and whichever worker span it
+routed to share the same value, a simpler secondary way for a grader to reconstruct "supervisor
+decision #N routed to worker X" by grouping on a metadata field, without needing to walk the Langfuse
+span tree.
 
 `handoff_log` (every routing decision this turn, `{from, to, reason, timestamp}`) is also returned in
 the `/chat` API response body directly -- not just in Langfuse -- so a grader/on-call engineer can

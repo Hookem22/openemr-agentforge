@@ -12,6 +12,7 @@ otherwise have no test catching a silent break of that contract.
 """
 from __future__ import annotations
 
+from contextlib import contextmanager
 from types import SimpleNamespace
 
 import pytest
@@ -20,7 +21,20 @@ from app.graph import AgentState, evidence_retriever_node, intake_extractor_node
 
 
 def _fake_langfuse_client():
-    return SimpleNamespace(update_current_span=lambda **kwargs: None)
+    # get_current_trace_id/get_current_observation_id (supervisor_node) and
+    # start_as_current_observation (intake_extractor_node/evidence_retriever_node) back the real
+    # parent/child span nesting fix (grader-flagged, Final feedback) -- a bare update_current_span
+    # stub is no longer enough shape for either node to run against.
+    @contextmanager
+    def _start_as_current_observation(**kwargs):
+        yield SimpleNamespace(update=lambda **_: None)
+
+    return SimpleNamespace(
+        update_current_span=lambda **kwargs: None,
+        get_current_trace_id=lambda: "fake-trace-id",
+        get_current_observation_id=lambda: "fake-observation-id",
+        start_as_current_observation=_start_as_current_observation,
+    )
 
 
 def _base_state(**overrides) -> dict:
@@ -41,6 +55,7 @@ def _base_state(**overrides) -> dict:
         "evidence_empty": False,
         "correlation_id": "corr-1",
         "handoff_log": [],
+        "handoff_span_context": None,
     }
     state.update(overrides)
     return state
@@ -54,7 +69,7 @@ def test_agent_state_declares_exactly_the_fields_every_node_relies_on():
         "patient_id", "bearer_token", "patient_pid", "messages", "tool_results_this_turn",
         "tool_failures", "verified_claims", "stripped_claims", "pending_document",
         "document_processed", "extracted_facts", "evidence_snippets", "evidence_fetched",
-        "evidence_empty", "correlation_id", "handoff_log",
+        "evidence_empty", "correlation_id", "handoff_log", "handoff_span_context",
     }
     assert set(AgentState.__annotations__) == expected_fields
 

@@ -14,6 +14,7 @@ computes per case map 1:1 onto W2_ARCHITECTURE.md Section 6's list:
 from __future__ import annotations
 
 import os
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 
 from pydantic import ValidationError
@@ -51,6 +52,18 @@ class RubricResult:
         return [k for k, v in expected.items() if actual.get(k) != v]
 
 
+class _FakeSpan:
+    """Yielded by FakeLangfuseClient.start_as_current_observation -- just enough to satisfy
+    graph.py's `with ... as span: span.update(...)` usage (real parent/child span nesting,
+    grader-flagged fix, Final feedback)."""
+
+    def __init__(self):
+        self.updates: list[dict] = []
+
+    def update(self, **kwargs):
+        self.updates.append(kwargs)
+
+
 class FakeLangfuseClient:
     """Records telemetry calls instead of sending them, so no_phi_in_logs can scan what WOULD have
     been sent to Langfuse without needing real credentials or making network calls. Same pattern as
@@ -71,6 +84,17 @@ class FakeLangfuseClient:
 
     def flush(self):
         pass
+
+    def get_current_trace_id(self) -> str:
+        return "fake-trace-id"
+
+    def get_current_observation_id(self) -> str:
+        return "fake-observation-id"
+
+    @contextmanager
+    def start_as_current_observation(self, **kwargs):
+        self.calls.append(("start_as_current_observation", kwargs))
+        yield _FakeSpan()
 
 
 def _scan_for_phi(calls: list[tuple[str, dict]], phi_markers: list[str]) -> list[str]:
