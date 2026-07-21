@@ -1091,4 +1091,6 @@ Remediation, in priority order (lowest rubric score earned first, per the plan d
    Anthropic + Voyage APIs; the committed file reflects a genuine real run's output verbatim
    (49/50, MSD-07 being the one known-flaky case) rather than a synthetic example. Tier 1 suite:
    **141 tests**; ruff, mypy, bandit, pip-audit all clean.
+   Confirmed with a real watched GitHub Actions run: commit `db91a68e`, CI run
+   [`29868752326`](https://github.com/Hookem22/openemr-agentforge/actions/runs/29868752326) — green.
 10. Remaining P2 item per the plan doc (#11 Langfuse dashboard config).
