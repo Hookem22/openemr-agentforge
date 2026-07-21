@@ -1078,4 +1078,17 @@ Remediation, in priority order (lowest rubric score earned first, per the plan d
    pip-audit all clean.
    Confirmed with a real watched GitHub Actions run: commit `8bd244f9`, CI run
    [`29867704230`](https://github.com/Hookem22/openemr-agentforge/actions/runs/29867704230) — green.
-9. Remaining P2 items per the plan doc (#10 judge-results artifact, #11 Langfuse dashboard config), in order.
+9. **P2 #10 — Judge reproducible; results recorded (2/3 → done, 2026-07-21, live-verified).** Real
+   gap: `golden_checks.py` (the boolean-rubric "judge" logic) was committed and reproducible, but
+   the only committed artifact was `baseline_results.json`'s aggregate pass *rates* — no per-case
+   outcome was recorded anywhere, so a grader had to re-run the 50-case suite themselves just to see
+   which specific cases/rubrics the most recent real run actually failed. Fixed: `run_eval_gate.py`
+   now writes `agent/eval/latest_results.md` on every full (non-`--tier1-only`) run — a per-rubric
+   pass-rate table plus a per-case table (id, category, PASS/FAIL, which specific rubrics failed).
+   New pure `render_latest_results_md()` function (2 unit tests); `run_golden_set()` now also
+   returns the per-case data it was already collecting instead of discarding it, so no new live-run
+   machinery was needed. **Live-verified**: ran the full golden set twice against the real
+   Anthropic + Voyage APIs; the committed file reflects a genuine real run's output verbatim
+   (49/50, MSD-07 being the one known-flaky case) rather than a synthetic example. Tier 1 suite:
+   **141 tests**; ruff, mypy, bandit, pip-audit all clean.
+10. Remaining P2 item per the plan doc (#11 Langfuse dashboard config).

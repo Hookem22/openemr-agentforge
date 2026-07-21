@@ -21,6 +21,12 @@ regressions (extraction accuracy, retrieval relevance); the unit/integration tie
 for *structural/logic* regressions (a verifier that stopped verifying). Running only one tier left
 exactly the class of regression this project cares most about only probabilistically caught.
 
+Every full run (i.e. not `--tier1-only`) also (re)writes `agent/eval/latest_results.md`, a
+human-readable per-case pass/fail table (Final feedback P2 #10: "latest eval results are recorded
+and reviewable" -- previously only `baseline_results.json`'s aggregate pass *rates* were committed,
+so a grader had to re-run the suite themselves to see which specific cases/rubrics the most recent
+real run actually failed).
+
 Usage:
     python eval/run_eval_gate.py                 # run the gate, compare to the checked-in baseline
     python eval/run_eval_gate.py --update-baseline  # (re)write baseline_results.json from this run
@@ -43,11 +49,13 @@ import os
 import sys
 import uuid
 from collections import defaultdict
+from datetime import datetime, timezone
 
 import pytest
 
 GOLDEN_SET_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "golden_set.json")
 BASELINE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "baseline_results.json")
+LATEST_RESULTS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "latest_results.md")
 # 5 points, per the assignment spec (Week 2 PRD, "Eval-driven CI gate": "the build must fail if any
 # category regresses by more than 5%"). This was previously widened to 15 points based on a real,
 # measured false-positive: the OLD category-based aggregation divided the "refusals" category by
@@ -155,9 +163,55 @@ def aggregate_by_rubric(
     }
 
 
-def run_golden_set() -> dict[str, float]:
+def render_latest_results_md(
+    cases: list[dict],
+    outcomes: dict[str, str],
+    rubric_results: dict[str, dict[str, bool]],
+    rubric_pass_rates: dict[str, float],
+    generated_at: str,
+) -> str:
+    """Renders a human-readable per-case pass/fail table from one real golden-set run (Final
+    feedback P2 #10: "latest eval results are recorded and reviewable" -- a grader shouldn't have to
+    re-run the suite themselves just to see what the most recent real run actually found). Pure
+    string-building, no I/O, so it's unit-testable without paying for a live run."""
+    lines = [
+        "# Latest golden-set results",
+        "",
+        f"Generated {generated_at} by `python eval/run_eval_gate.py` against the real Anthropic + "
+        "Voyage APIs (and local OpenEMR for chat cases). Regenerated on every full (non-`--tier1-only`) "
+        "run -- this file always reflects the most recent real run, not necessarily the checked-in "
+        "`baseline_results.json` (which only updates on `--update-baseline`).",
+        "",
+        "## Per-rubric pass rate",
+        "",
+        "| Rubric | Pass rate |",
+        "|---|---|",
+    ]
+    for rubric, rate in sorted(rubric_pass_rates.items()):
+        lines.append(f"| {rubric} | {rate:.0%} |")
+
+    lines += ["", "## Per-case results", "", "| Case | Category | Result | Failed rubrics |", "|---|---|---|---|"]
+    for case in cases:
+        case_id = case["id"]
+        outcome = outcomes.get(case_id, "no result recorded")
+        result_marker = "PASS" if outcome == "passed" else "FAIL"
+        rubric_result = rubric_results.get(case_id)
+        if rubric_result is None:
+            failed = "(no rubric breakdown recorded)"
+        else:
+            failed_names = [name for name in RUBRIC_NAMES if not rubric_result.get(name, False)]
+            failed = ", ".join(failed_names) if failed_names else "--"
+        lines.append(f"| {case_id} | {case.get('category', '')} | {result_marker} | {failed} |")
+
+    lines.append("")
+    return "\n".join(lines)
+
+
+def run_golden_set() -> tuple[dict[str, float], list[dict], dict[str, str], dict[str, dict[str, bool]]]:
     """Runs the full golden set once (real Anthropic/Voyage/OpenEMR calls) and returns
-    {rubric_name: pass_rate} via aggregate_by_rubric()."""
+    ({rubric_name: pass_rate}, cases, per-case outcomes, per-case rubric breakdowns) -- the latter
+    three so main() can also render the per-case latest_results.md artifact, not just the aggregate
+    used for the baseline gate check."""
     collector = _ResultCollector()
     test_target = os.path.join(os.path.dirname(os.path.abspath(__file__)), "test_golden_set.py")
     exit_code = pytest.main(["-q", test_target], plugins=[collector])
@@ -166,7 +220,8 @@ def run_golden_set() -> dict[str, float]:
         sys.exit(2)
 
     cases = _load_cases()
-    return aggregate_by_rubric(cases, collector.outcomes, collector.rubric_results)
+    rates = aggregate_by_rubric(cases, collector.outcomes, collector.rubric_results)
+    return rates, cases, collector.outcomes, collector.rubric_results
 
 
 def compare_to_baseline(current: dict[str, float], baseline: dict[str, float]) -> list[str]:
@@ -206,11 +261,16 @@ def main() -> int:
         print("Tier 1 passed.\n")
 
     print("Tier 2: running the 50-case golden set against the real Anthropic + Voyage APIs (and local OpenEMR for chat cases)...")
-    current = run_golden_set()
+    current, cases, outcomes, rubric_results = run_golden_set()
 
     print("\nPer-rubric pass rate:")
     for rubric, rate in sorted(current.items()):
         print(f"  {rubric:20s} {rate:.0%}")
+
+    generated_at = datetime.now(timezone.utc).isoformat()
+    with open(LATEST_RESULTS_PATH, "w", encoding="utf-8") as f:
+        f.write(render_latest_results_md(cases, outcomes, rubric_results, current, generated_at))
+    print(f"Wrote per-case results to {LATEST_RESULTS_PATH}")
 
     if args.push_to_langfuse:
         push_scores_to_langfuse(current)

@@ -8,7 +8,7 @@ safe_refusal, no_phi_in_logs, computed across every case regardless of its categ
 """
 from __future__ import annotations
 
-from eval.run_eval_gate import RUBRIC_NAMES, aggregate_by_rubric, compare_to_baseline
+from eval.run_eval_gate import RUBRIC_NAMES, aggregate_by_rubric, compare_to_baseline, render_latest_results_md
 
 
 def _all_true() -> dict[str, bool]:
@@ -90,3 +90,30 @@ def test_compare_to_baseline_tolerates_a_regression_within_the_threshold():
     failures = compare_to_baseline(current, baseline)
 
     assert failures == []
+
+
+def test_render_latest_results_md_marks_a_case_pass_or_fail():
+    """Final feedback P2 #10: a grader reading this file must be able to tell, per case, whether it
+    passed and (if not) which specific rubrics failed -- not just an aggregate rate."""
+    cases = [{"id": "A", "category": "citations"}, {"id": "B", "category": "refusals"}]
+    outcomes = {"A": "passed", "B": "failed"}
+    rubric_results = {
+        "A": _all_true(),
+        "B": {**_all_true(), "safe_refusal": False, "factually_consistent": False},
+    }
+
+    md = render_latest_results_md(cases, outcomes, rubric_results, {"safe_refusal": 0.5}, "2026-07-21T00:00:00+00:00")
+
+    assert "| A | citations | PASS | -- |" in md
+    assert "| B | refusals | FAIL | factually_consistent, safe_refusal |" in md
+    assert "| safe_refusal | 50% |" in md
+
+
+def test_render_latest_results_md_flags_a_case_with_no_recorded_result():
+    """A case that errored before record_property ran (or was skipped) must show up distinctly, not
+    silently disappear from the table or look like a clean pass."""
+    cases = [{"id": "MISSING", "category": "refusals"}]
+
+    md = render_latest_results_md(cases, {}, {}, {}, "2026-07-21T00:00:00+00:00")
+
+    assert "| MISSING | refusals | FAIL | (no rubric breakdown recorded) |" in md
