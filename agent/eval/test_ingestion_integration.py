@@ -8,6 +8,7 @@ isolate from model behavior.
 """
 from __future__ import annotations
 
+import base64
 import json
 from types import SimpleNamespace
 
@@ -221,3 +222,72 @@ def test_ingest_endpoint_returns_clean_json_on_an_upstream_401_not_a_raw_500(mon
     assert resp.status_code == 502
     body = resp.json()  # must not raise -- this is exactly what broke in production
     assert "401" in body["detail"]
+
+
+MULTIPAGE_FIXTURE = "eval/fixtures/maria_gonzalez_multipage_lab.pdf"
+
+
+def test_document_preview_endpoint_returns_one_png_per_pdf_page():
+    """The core of the click-to-source overlay: a multi-page PDF must come back as one PNG per
+    page, in page order, re-rasterized with the exact same function (rasterize_to_page_images) that
+    produced the images Claude's vision extraction originally saw -- so a citation's normalized bbox
+    lines up with what's actually rendered, with no separate client-side PDF-rendering path to
+    drift out of sync. Uses a real 2-page fixture, not a stub, since rasterization itself is
+    deterministic and exactly what this test needs to prove works for a real multi-page document.
+
+    Posts the raw bytes directly (not a patient_id/document_id lookup) -- a real live test found
+    OpenEMR's own document-download route throws when called via Bearer-token REST auth (its CSRF
+    handling assumes a browser session), so document_preview.php fetches the bytes itself from its
+    own real session and hands them here just for rasterization; see main.py's document_preview
+    docstring for the full story."""
+    client = TestClient(app)
+    with open(MULTIPAGE_FIXTURE, "rb") as f:
+        resp = client.post(
+            "/document_preview",
+            data={"mimetype": "application/pdf"},
+            files={"file": ("lab.pdf", f, "application/pdf")},
+            headers={"Authorization": "Bearer tok"},
+        )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["page_mimetype"] == "image/png"
+    assert len(body["pages_base64"]) == 2  # the fixture is genuinely 2 pages, not stubbed
+    for page_b64 in body["pages_base64"]:
+        assert base64.b64decode(page_b64).startswith(b"\x89PNG")  # PNG magic bytes
+
+
+def test_document_preview_endpoint_passes_through_original_mimetype_for_an_image_upload():
+    """A plain image upload (a phone photo, not a PDF) has no "pages" to rasterize -- it's returned
+    as-is, single-entry, under its own original mimetype rather than being force-converted to PNG."""
+    client = TestClient(app)
+    resp = client.post(
+        "/document_preview",
+        data={"mimetype": "image/jpeg"},
+        files={"file": ("photo.jpg", b"fake-jpeg-bytes", "image/jpeg")},
+        headers={"Authorization": "Bearer tok"},
+    )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["page_mimetype"] == "image/jpeg"
+    assert len(body["pages_base64"]) == 1
+    assert base64.b64decode(body["pages_base64"][0]) == b"fake-jpeg-bytes"
+
+
+def test_document_preview_endpoint_requires_authorization(monkeypatch):
+    """The auth gate stays even though this endpoint no longer calls OpenEMR itself -- an arbitrary
+    unauthenticated caller shouldn't be able to spend agent CPU rasterizing arbitrary uploaded bytes.
+    Explicitly clears the dev-only fallback token (_resolve_bearer_token's settings.dev_bearer_token)
+    so this test is hermetic -- it would otherwise silently pass or fail depending on whether the
+    local agent/.env happens to have DEV_BEARER_TOKEN set, rather than testing the no-header case."""
+    monkeypatch.setattr(main_module.settings, "dev_bearer_token", "")
+
+    client = TestClient(app)
+    resp = client.post(
+        "/document_preview",
+        data={"mimetype": "image/jpeg"},
+        files={"file": ("photo.jpg", b"fake-jpeg-bytes", "image/jpeg")},
+    )
+
+    assert resp.status_code == 401

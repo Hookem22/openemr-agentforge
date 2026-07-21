@@ -1,6 +1,25 @@
 {
   "components": {
     "schemas": {
+      "Body_document_preview_document_preview_post": {
+        "properties": {
+          "file": {
+            "contentMediaType": "application/octet-stream",
+            "title": "File",
+            "type": "string"
+          },
+          "mimetype": {
+            "title": "Mimetype",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file",
+          "mimetype"
+        ],
+        "title": "Body_document_preview_document_preview_post",
+        "type": "object"
+      },
       "Body_ingest_ingest_post": {
         "properties": {
           "doc_type": {
@@ -151,6 +170,28 @@
         "title": "ChatResponse",
         "type": "object"
       },
+      "DocumentPreviewResponse": {
+        "description": "Citation Contract's required click-to-source visual overlay: one image per page, at the\nexact rendering Claude's vision extraction originally saw (same rasterize_to_page_images call\nattach_and_extract uses), so a citation's normalized {page, x0, y0, x1, y1} bbox lines up with\nwhat's actually displayed -- no separate client-side PDF-rendering path (e.g. PDF.js) to drift\nout of sync with the extraction-time raster.",
+        "properties": {
+          "page_mimetype": {
+            "title": "Page Mimetype",
+            "type": "string"
+          },
+          "pages_base64": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Pages Base64",
+            "type": "array"
+          }
+        },
+        "required": [
+          "page_mimetype",
+          "pages_base64"
+        ],
+        "title": "DocumentPreviewResponse",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -299,6 +340,63 @@
           }
         },
         "summary": "Chat"
+      }
+    },
+    "/document_preview": {
+      "post": {
+        "description": "Citation Contract's required click-to-source visual overlay. Called by\ninterface/modules/copilot/document_preview.php, same auth-bridge pattern as /chat and /ingest.\n\nTakes the raw document bytes directly (like /ingest) rather than fetching them itself from\nOpenEMR: a real live test found OpenEMR's own standard-API document-download route\n(GET /api/patient/:pid/document/:did -> DocumentService::getFile() -> C_Document's constructor)\nthrows \"CSRF key is empty\" when called via a Bearer-token REST request -- that route's CSRF\nhandling assumes a traditional browser session, which a REST/Bearer caller doesn't have. Rather\nthan patch OpenEMR core's CSRF logic (security-sensitive, riskier than this feature needs),\ndocument_preview.php fetches the bytes itself via DocumentService::getFile() directly from\nwithin its own real browser session (where CSRF works fine, same \"authorization inheritance\"\nprinciple proxy.php/upload.php already use) and hands them here just for rasterization.",
+        "operationId": "document_preview_document_preview_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_document_preview_document_preview_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentPreviewResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Document Preview"
       }
     },
     "/health": {

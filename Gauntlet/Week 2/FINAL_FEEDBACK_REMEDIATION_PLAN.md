@@ -233,6 +233,29 @@ and is real.
 **Estimate: 6–10 hours** — by far the biggest single item in this plan, and the one to start earliest
 given its size.
 
+**Status: done 2026-07-21, live-tested end to end through a real browser session.** Built without a
+client-side PDF-rendering dependency (no PDF.js) by re-rasterizing the source server-side at preview time
+with the exact same `rasterize_to_page_images()` function `attach_and_extract` already uses at extraction
+time — since `bbox` is normalized (0.0-1.0), the browser only needs percentage-based CSS positioning over
+the rendered page image, no coordinate-space conversion. New agent endpoint `POST /document_preview`
+(bytes in, PNGs out) plus a new `document_preview.php` auth-bridge and a preview overlay + `[view source]`
+links in `widget.php`. Also had to thread `bbox` through `_flatten_extracted_facts`,
+`PROVIDE_ANSWER_TOOL`'s schema, and `SYSTEM_PROMPT` (it previously only reached `extracted_facts`, never
+an actual claim), and add a `pendingDocumentForChat` mechanism to the widget so a real upload's next chat
+question can actually produce a bbox-carrying citation (the pre-existing `pending_document` chat-turn path
+existed in code but the widget's real "Upload document" button never used it).
+
+Found and fixed 3 real bugs via actually driving this through a live local browser session (not
+hypothetical, not caught by any stubbed unit test) — see `W2_ARCHITECTURE.md` §5 for full detail: (1)
+OpenEMR's own document-download REST route throws a CSRF exception under Bearer-token auth, worked around
+by fetching bytes via `DocumentService::getFile()` directly from the real browser session instead of
+routing through OpenEMR's REST API; (2) that same method's `'file'` key is raw byte content, not a path —
+an earlier version of this code wrongly tried to `is_readable()`/`file_get_contents()` it; (3) Claude
+reported 1-indexed page numbers with no schema instruction telling it otherwise, silently highlighting the
+wrong page on any citation past a document's first page. Added `agent/eval/fixtures/
+maria_gonzalez_multipage_lab.pdf` (a genuine 2-page fixture — every other fixture was single-page) plus 3
+new automated tests. Full Tier 1 suite: 123 tests, ruff/mypy/bandit/pip-audit all clean.
+
 ### 9. Handoffs fully traceable — **2/3**
 
 **Rubric:** *...each worker invocation is a child span of the supervisor span.*
@@ -328,7 +351,7 @@ hardened. Audit and add missing guards.
 | 5 | HARD GATE: CI blocks regression | 2/4 | **P2 — done** | 3–5 |
 | 6 | Reranker measurably improves grounding | 2/4 | **P2** | 2–3 |
 | 7 | Full citation shape on every claim | 2/4 | **P2** | 3–4 |
-| 8 | Bounding-box overlay polished | 2/4 | **P2** | 6–10 |
+| 8 | Bounding-box overlay polished | 2/4 | **P2 — done, live-tested** | 6–10 |
 | 9 | Handoffs fully traceable | 2/3 | **P2** | 2–4 |
 | 10 | Judge reproducible; results recorded | 2/3 | **P2** | 1–2 |
 | 11 | Dashboard shows Week 2 health | 2/3 | **P2** | 1 |
@@ -347,9 +370,12 @@ Strict score-ascending order is the priority rule, but two notes on sequencing e
 
 - **Items #1, #2, #5 are one connected epic** (spec pinning, threshold, and making Tier 2 a real PR-blocking
   check all touch the same CI files) — tackle them together rather than as three separate context-switches.
-- **Item #8 (bbox overlay) is the single biggest item** (6–10 hours, real unbuilt frontend work) — start it
-  early in parallel with the smaller P0/P1 fixes if more than one person/session is available, since it has
-  no dependency on the others and its size dominates the whole plan.
+- **Item #8 (bbox overlay) is the single biggest item** (6–10 hours, real unbuilt frontend work) — no
+  dependency on the others, so it doesn't have to wait for strict score order.
+
+**Reprioritized 2026-07-21 (explicit user request):** item #8 moved ahead of #6/#7/#9/#10/#11 despite its
+higher point count, so it can be tested visually in the browser rather than waiting on the lower-scored
+items first. All P0/P1/#5 items above are already done; #8 is next.
 
 If time is constrained, P0 + P1 + item #5 (the eval-gate epic) recovers 9 of the 23 lost points for
 roughly 7–10 hours of work and directly addresses everything the grader called a "blocker" except the

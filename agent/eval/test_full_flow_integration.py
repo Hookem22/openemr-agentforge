@@ -42,6 +42,7 @@ LAB_EXTRACTION_TOOL_INPUT = {
         {
             "test_name": "Fasting Glucose", "value": "142", "unit": "mg/dL", "reference_range": "70-99",
             "collection_date": "2026-07-17", "abnormal_flag": True, "confidence": 0.95,
+            "bbox": {"page": 0, "x0": 0.1, "y0": 0.2, "x1": 0.4, "y1": 0.25},
             "citation": {"source_type": "document", "source_id": "34", "page_or_section": "1", "quote_or_value": "Fasting Glucose 142 mg/dL"},
         }
     ]
@@ -194,3 +195,10 @@ def test_full_pipeline_upload_to_grounded_answer(monkeypatch, tmp_path):
         c["source"].get("source_type") or c["source"].get("resource_type") for c in result["verified_claims"]
     }
     assert source_types == {"Observation", "document", "guideline"}
+
+    # Citation Contract's required click-to-source visual overlay: the bbox on the extracted lab
+    # result must survive the entire chain -- extraction -> _flatten_extracted_facts -> injected
+    # context -> the model copying it into provide_answer -> verify_claims passing it through
+    # unmodified -- all the way into this turn's final response, not just as far as extracted_facts.
+    document_claim = next(c for c in result["verified_claims"] if c["source"].get("source_type") == "document")
+    assert document_claim["source"]["bbox"] == {"page": 0, "x0": 0.1, "y0": 0.2, "x1": 0.4, "y1": 0.25}

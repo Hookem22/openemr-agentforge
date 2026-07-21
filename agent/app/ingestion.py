@@ -154,7 +154,20 @@ BBOX_SCHEMA = {
     "type": "object",
     "description": "Normalized (0.0-1.0) location of this field on its page image.",
     "properties": {
-        "page": {"type": "integer"},
+        "page": {
+            "type": "integer",
+            "minimum": 0,
+            "description": (
+                "0-indexed page number matching the order the page images were provided in this "
+                "message -- the FIRST page image is page 0, not page 1. Found live (Week 2 Final "
+                "grader feedback's click-to-source overlay testing): without this instruction, "
+                "Claude naturally reports the human-facing 1-indexed page number seen printed on "
+                "the page itself (e.g. 'Page 2 of 2') instead, which is off-by-one against "
+                "rasterize_to_page_images()'s 0-indexed page list and the click-to-source "
+                "overlay's page lookup -- silently highlighting the wrong page for any citation "
+                "past the first page of a multi-page document."
+            ),
+        },
         "x0": {"type": "number"},
         "y0": {"type": "number"},
         "x1": {"type": "number"},

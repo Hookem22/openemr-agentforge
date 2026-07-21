@@ -54,7 +54,7 @@ from langgraph.graph import END, StateGraph
 
 from .config import settings
 from .fhir_client import FhirClient
-from .ingestion import DocType, IngestionError, attach_and_extract
+from .ingestion import BBOX_SCHEMA, DocType, IngestionError, attach_and_extract
 from .rag import retrieve
 from .tools import TOOL_FUNCTIONS, TOOL_SCHEMAS
 from .verifier import verify_claims
@@ -113,7 +113,7 @@ PROVIDE_ANSWER_TOOL = {
                                 "no_data marker ({type: 'no_data', resource_type}), or -- for facts "
                                 "surfaced by the intake-extractor/evidence-retriever workers -- the "
                                 "unified citation copied exactly from that fact's own citation object "
-                                "({source_type, source_id, field_or_chunk_id})."
+                                "({source_type, source_id, field_or_chunk_id}, plus bbox when present)."
                             ),
                             "properties": {
                                 "resource_type": {
@@ -126,6 +126,14 @@ PROVIDE_ANSWER_TOOL = {
                                 "source_type": {"type": "string", "enum": ["document", "guideline"]},
                                 "source_id": {"type": "string"},
                                 "field_or_chunk_id": {"type": "string"},
+                                "bbox": {
+                                    **BBOX_SCHEMA,
+                                    "description": (
+                                        "Normalized (0.0-1.0) location of this fact on its page image. Only "
+                                        "present on a document-sourced fact -- copy it exactly, unmodified, "
+                                        "when citing one; never invent one for a fact that didn't carry it."
+                                    ),
+                                },
                             },
                         },
                     },
@@ -153,9 +161,10 @@ Rules, no exceptions:
 - If an earlier message in this conversation is labeled "[Extracted from uploaded document ...]" or \
   "[Retrieved guideline evidence ...]", each line below that label is a JSON object with a `text` \
   fact and its own `citation`. When you cite one of these facts in provide_answer, copy that \
-  citation's source_type, source_id, and field_or_chunk_id fields exactly as given -- never invent \
-  or alter them. If a "[Retrieved guideline evidence]" label says no evidence was found, say so \
-  plainly rather than fabricating guideline-sourced guidance.
+  citation's source_type, source_id, field_or_chunk_id, AND bbox (when the citation has one) fields \
+  exactly as given -- never invent or alter them, and never add a bbox that wasn't already there. \
+  If a "[Retrieved guideline evidence]" label says no evidence was found, say so plainly rather than \
+  fabricating guideline-sourced guidance.
 - You must end every turn by calling provide_answer -- this is the only way to respond.
 """
 
@@ -231,15 +240,26 @@ def _facts_to_context_message(facts: list[dict], label: str) -> str:
     return "\n".join(lines)
 
 
-def _with_field_id(citation: dict, field_id: str) -> dict:
+def _with_field_id(citation: dict, field_id: str, bbox: dict | None = None) -> dict:
     """Overrides `citation.field_or_chunk_id` with a deterministic, code-assigned identifier
     instead of trusting whatever (if anything) the VLM itself put there. Real live testing found
     Claude leaves this null for lab results -- the extraction tool schema only asks it to name
     *which field* ('value', 'test_name'), not *which row* -- so every result in a multi-result lab
     PDF collapsed onto the same (document, id, None) key, letting a claim cite any one of them
     without the verifier distinguishing which. Same "don't trust the model's own attestation"
-    principle verifier.py already applies to claims -- applied here to citation metadata too."""
-    return {**citation, "field_or_chunk_id": field_id}
+    principle verifier.py already applies to claims -- applied here to citation metadata too.
+
+    `bbox` (Citation Contract's required click-to-source visual overlay) is folded in here too --
+    it lives as a sibling field on the extracted record (schemas.py's `_ExtractedField`), not
+    inside `citation` itself, so callers must pass it separately. Additive only: this is not a
+    change to the Citation model's own 5-field contract (still exactly source_type/source_id/
+    page_or_section/field_or_chunk_id/quote_or_value everywhere that model is used for extraction
+    validation) -- verifier.py's unified-citation match key only ever reads those same 3 fields, so
+    an extra `bbox` key riding along on the plain dict downstream doesn't affect matching at all."""
+    merged = {**citation, "field_or_chunk_id": field_id}
+    if bbox is not None:
+        merged["bbox"] = bbox
+    return merged
 
 
 def _flatten_extracted_facts(extraction: dict, doc_type: DocType) -> list[dict]:
@@ -253,7 +273,7 @@ def _flatten_extracted_facts(extraction: dict, doc_type: DocType) -> list[dict]:
             range_note = f" (reference range {r['reference_range']})" if r.get("reference_range") else ""
             facts.append({
                 "text": f"{r['test_name']}: {r['value']}{unit}{range_note}",
-                "citation": _with_field_id(r["citation"], f"results[{i}]"),
+                "citation": _with_field_id(r["citation"], f"results[{i}]", r.get("bbox")),
             })
         return facts
 
@@ -262,31 +282,31 @@ def _flatten_extracted_facts(extraction: dict, doc_type: DocType) -> list[dict]:
         facts.append({
             "text": f"Demographics: name={demographics.get('name')}, dob={demographics.get('date_of_birth')}, "
                     f"sex={demographics.get('sex')}",
-            "citation": _with_field_id(demographics["citation"], "demographics"),
+            "citation": _with_field_id(demographics["citation"], "demographics", demographics.get("bbox")),
         })
     chief_concern = extraction.get("chief_concern")
     if chief_concern:
         facts.append({
             "text": f"Chief concern: {chief_concern['text']}",
-            "citation": _with_field_id(chief_concern["citation"], "chief_concern"),
+            "citation": _with_field_id(chief_concern["citation"], "chief_concern", chief_concern.get("bbox")),
         })
     for i, m in enumerate(extraction.get("current_medications", [])):
         dose = f" {m['dose']}" if m.get("dose") else ""
         freq = f" {m['frequency']}" if m.get("frequency") else ""
         facts.append({
             "text": f"Medication: {m['name']}{dose}{freq}",
-            "citation": _with_field_id(m["citation"], f"current_medications[{i}]"),
+            "citation": _with_field_id(m["citation"], f"current_medications[{i}]", m.get("bbox")),
         })
     for i, a in enumerate(extraction.get("allergies", [])):
         reaction = f" (reaction: {a['reaction']})" if a.get("reaction") else ""
         facts.append({
             "text": f"Allergy: {a['allergen']}{reaction}",
-            "citation": _with_field_id(a["citation"], f"allergies[{i}]"),
+            "citation": _with_field_id(a["citation"], f"allergies[{i}]", a.get("bbox")),
         })
     for i, f in enumerate(extraction.get("family_history", [])):
         facts.append({
             "text": f"Family history: {f['relation']} - {f['condition']}",
-            "citation": _with_field_id(f["citation"], f"family_history[{i}]"),
+            "citation": _with_field_id(f["citation"], f"family_history[{i}]", f.get("bbox")),
         })
     return facts
 

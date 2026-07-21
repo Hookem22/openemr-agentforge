@@ -17,6 +17,7 @@ EXPECTED_ENDPOINTS = {
     ("/ready", "get"),
     ("/chat", "post"),
     ("/ingest", "post"),
+    ("/document_preview", "post"),
 }
 
 

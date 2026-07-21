@@ -1003,4 +1003,28 @@ Remediation, in priority order (lowest rubric score earned first, per the plan d
    Confirmed with a real watched GitHub Actions run: commit `3243b120`, CI run
    [`29856384040`](https://github.com/Hookem22/openemr-agentforge/actions/runs/29856384040) — green in
    1m31s.
-5. Remaining P2/P3 items per the plan doc, in order.
+5. **P2 #8 — Bounding-box overlay polished (2/4 → done, 2026-07-21).** Reprioritized ahead of the
+   other P2 items on explicit request, so it could be tested visually. Real gap: `W2_ARCHITECTURE.md`
+   described this as built; `interface/modules/copilot/widget.php` had zero bbox/overlay code at all.
+   Built without a new PDF.js dependency — the preview re-rasterizes the source server-side with the
+   *same* `rasterize_to_page_images()` `attach_and_extract` already uses, so the normalized bbox needs
+   only percentage-based CSS positioning, no coordinate-space conversion. New agent endpoint
+   `POST /document_preview`, new `document_preview.php` auth-bridge, a preview overlay + `[view
+   source]` links in `widget.php`, `bbox` threaded through `_flatten_extracted_facts`/
+   `PROVIDE_ANSWER_TOOL`/`SYSTEM_PROMPT` (previously stopped at `extracted_facts`, never reached an
+   actual claim), and a `pendingDocumentForChat` mechanism so a real upload's next question can
+   actually produce a bbox-carrying citation (the code-level `pending_document` path existed but the
+   widget's own upload button never used it).
+   **Live-tested end to end** against local OpenEMR + local agent through a real authenticated browser
+   session (not just automated tests) — found and fixed 3 real bugs in the process, none hypothetical:
+   (1) OpenEMR's own document-download REST route throws "CSRF key is empty" under Bearer-token auth
+   (worked around by fetching bytes via `DocumentService::getFile()` directly from the real browser
+   session instead of OpenEMR's REST API); (2) that method's `'file'` key is raw byte content, not a
+   path, which an earlier version of the code wrongly treated as one; (3) Claude reported 1-indexed
+   page numbers with no schema instruction saying otherwise, silently highlighting the wrong page past
+   a document's first page. Added a genuine 2-page fixture (`maria_gonzalez_multipage_lab.pdf` — every
+   prior fixture was single-page) and confirmed via a real screenshot: uploaded it, asked a question,
+   got back 7 verified claims each with a correct `bbox` (page 0 for the CBC panel, page 1 for the
+   metabolic panel), clicked through to the preview, and the highlight box landed exactly on the cited
+   table row. Full Tier 1 suite: **123 tests**; ruff, mypy, bandit, pip-audit all clean.
+6. Remaining P2/P3 items per the plan doc, in order.

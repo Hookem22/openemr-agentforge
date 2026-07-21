@@ -10,7 +10,7 @@ from pydantic import BaseModel, field_validator
 
 from .config import settings
 from .graph import run_turn
-from .ingestion import IngestionError, attach_and_extract
+from .ingestion import IngestionError, attach_and_extract, rasterize_to_page_images
 from .rag import _voyage_client, load_corpus
 
 app = FastAPI(title="Clinical Co-Pilot Agent")
@@ -44,6 +44,17 @@ class ChatRequest(BaseModel):
         if not v.strip():
             raise ValueError("message must not be empty")
         return v
+
+
+class DocumentPreviewResponse(BaseModel):
+    """Citation Contract's required click-to-source visual overlay: one image per page, at the
+    exact rendering Claude's vision extraction originally saw (same rasterize_to_page_images call
+    attach_and_extract uses), so a citation's normalized {page, x0, y0, x1, y1} bbox lines up with
+    what's actually displayed -- no separate client-side PDF-rendering path (e.g. PDF.js) to drift
+    out of sync with the extraction-time raster."""
+
+    page_mimetype: str  # "image/png" for a rasterized PDF page; the original mimetype for a plain image upload
+    pages_base64: list[str]
 
 
 class ChatResponse(BaseModel):
@@ -260,3 +271,33 @@ async def ingest(
 
     get_client().flush()
     return result
+
+
+@app.post("/document_preview", response_model=DocumentPreviewResponse)
+async def document_preview(
+    file: UploadFile = File(...),
+    mimetype: str = Form(...),
+    authorization: str | None = Header(default=None),
+):
+    """Citation Contract's required click-to-source visual overlay. Called by
+    interface/modules/copilot/document_preview.php, same auth-bridge pattern as /chat and /ingest.
+
+    Takes the raw document bytes directly (like /ingest) rather than fetching them itself from
+    OpenEMR: a real live test found OpenEMR's own standard-API document-download route
+    (GET /api/patient/:pid/document/:did -> DocumentService::getFile() -> C_Document's constructor)
+    throws "CSRF key is empty" when called via a Bearer-token REST request -- that route's CSRF
+    handling assumes a traditional browser session, which a REST/Bearer caller doesn't have. Rather
+    than patch OpenEMR core's CSRF logic (security-sensitive, riskier than this feature needs),
+    document_preview.php fetches the bytes itself via DocumentService::getFile() directly from
+    within its own real browser session (where CSRF works fine, same "authorization inheritance"
+    principle proxy.php/upload.php already use) and hands them here just for rasterization.
+    """
+    _resolve_bearer_token(authorization)  # auth gate only -- no OpenEMR call is made from here
+    data = await file.read()
+
+    pages = rasterize_to_page_images(data, mimetype)
+    page_mimetype = "image/png" if mimetype == "application/pdf" else mimetype
+    return DocumentPreviewResponse(
+        page_mimetype=page_mimetype,
+        pages_base64=[base64.b64encode(p).decode("ascii") for p in pages],
+    )

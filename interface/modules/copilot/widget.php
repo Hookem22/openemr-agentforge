@@ -41,6 +41,22 @@ $copilotIsAuthorized = !empty($session->get('copilot_access_token'));
             <button type="submit" class="btn btn-sm btn-primary">Send</button>
         </form>
     </div>
+    <!-- Citation Contract's required click-to-source visual overlay (Week 2 Final grader feedback):
+         shows the exact source page a claim's citation points to, with a highlight box at its bbox. -->
+    <div id="copilot-preview-overlay" style="display:none; position:fixed; inset:0; z-index:1100; background:rgba(0,0,0,.5); align-items:center; justify-content:center;">
+        <div style="background:#fff; border-radius:8px; max-width:92vw; max-height:92vh; overflow:auto; padding:16px; position:relative;">
+            <button id="copilot-preview-close" type="button" class="btn btn-sm btn-outline-secondary" style="position:absolute; top:8px; right:8px;">Close</button>
+            <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
+                <button id="copilot-preview-prev" type="button" class="btn btn-sm btn-outline-secondary">&laquo; Prev</button>
+                <span id="copilot-preview-page-label" style="font-size:12px; color:#555;"></span>
+                <button id="copilot-preview-next" type="button" class="btn btn-sm btn-outline-secondary">Next &raquo;</button>
+            </div>
+            <div id="copilot-preview-image-wrap" style="position:relative; display:inline-block; line-height:0;">
+                <img id="copilot-preview-image" style="max-width:80vw; max-height:75vh; display:block;" />
+                <div id="copilot-preview-highlight" style="display:none; position:absolute; border:3px solid #e01e1e; background:rgba(224,30,30,.15); pointer-events:none;"></div>
+            </div>
+        </div>
+    </div>
 </div>
 <script>
 (function () {
@@ -50,9 +66,17 @@ $copilotIsAuthorized = !empty($session->get('copilot_access_token'));
     const proxyUrl = <?php echo js_escape($GLOBALS['web_root'] ?? ''); ?> + '/interface/modules/copilot/proxy.php';
     const uploadUrl = <?php echo js_escape($GLOBALS['web_root'] ?? ''); ?> + '/interface/modules/copilot/upload.php';
     const startUrl = <?php echo js_escape($GLOBALS['web_root'] ?? ''); ?> + '/interface/modules/copilot/start.php';
+    const previewUrl = <?php echo js_escape($GLOBALS['web_root'] ?? ''); ?> + '/interface/modules/copilot/document_preview.php';
     const QUICK_START_MESSAGE = "Tell me about this patient before today's visit";
 
     let conversationHistory = [];
+    // Citation Contract's required click-to-source visual overlay: a document uploaded via
+    // uploadDocument() is persisted immediately (unchanged from before), but a citation from it
+    // only carries a bbox when the intake-extractor worker processes it *within* a chat turn, not
+    // from that standalone upload call. Stash the just-uploaded file here so the clinician's very
+    // next question attaches it as pending_document too -- giving that answer a chance to cite
+    // specific fields with a clickable source, on top of the existing extraction summary.
+    let pendingDocumentForChat = null;
     let quickStartEl = null;
     let loadingEl = null;
 
@@ -66,8 +90,103 @@ $copilotIsAuthorized = !empty($session->get('copilot_access_token'));
     const fileInput = document.getElementById('copilot-file-input');
     const uploadBtn = document.getElementById('copilot-upload-btn');
 
+    const previewOverlay = document.getElementById('copilot-preview-overlay');
+    const previewImage = document.getElementById('copilot-preview-image');
+    const previewHighlight = document.getElementById('copilot-preview-highlight');
+    const previewPageLabel = document.getElementById('copilot-preview-page-label');
+    const previewPrevBtn = document.getElementById('copilot-preview-prev');
+    const previewNextBtn = document.getElementById('copilot-preview-next');
+    const previewCloseBtn = document.getElementById('copilot-preview-close');
+
     toggleBtn.addEventListener('click', function () {
         panel.style.display = (panel.style.display === 'none') ? 'flex' : 'none';
+    });
+
+    // Citation Contract's required click-to-source visual overlay. previewCache avoids re-fetching
+    // (and re-rasterizing, on the agent side) the same document every time a different claim citing
+    // it is clicked. currentPreview holds the state needed to redraw on Prev/Next navigation.
+    const previewCache = {};
+    let currentPreview = null; // {pages, pageMimetype, pageIndex, bbox}
+
+    function renderPreviewPage() {
+        if (!currentPreview) {
+            return;
+        }
+        const idx = currentPreview.pageIndex;
+        previewImage.src = 'data:' + currentPreview.pageMimetype + ';base64,' + currentPreview.pages[idx];
+        previewPageLabel.textContent = 'Page ' + (idx + 1) + ' of ' + currentPreview.pages.length;
+        previewPrevBtn.disabled = (idx <= 0);
+        previewNextBtn.disabled = (idx >= currentPreview.pages.length - 1);
+
+        const bbox = currentPreview.bbox;
+        if (bbox && bbox.page === idx) {
+            previewHighlight.style.display = 'block';
+            previewHighlight.style.left = (bbox.x0 * 100) + '%';
+            previewHighlight.style.top = (bbox.y0 * 100) + '%';
+            previewHighlight.style.width = ((bbox.x1 - bbox.x0) * 100) + '%';
+            previewHighlight.style.height = ((bbox.y1 - bbox.y0) * 100) + '%';
+        } else {
+            previewHighlight.style.display = 'none';
+        }
+    }
+
+    function fetchDocumentPreview(documentId) {
+        if (previewCache[documentId]) {
+            return Promise.resolve(previewCache[documentId]);
+        }
+        const url = previewUrl + '?pid=' + encodeURIComponent(pid) + '&document_id=' + encodeURIComponent(documentId);
+        return fetch(url).then(function (resp) {
+            return resp.json().then(function (body) {
+                if (!resp.ok) {
+                    throw new Error(body.error || body.detail || ('HTTP ' + resp.status));
+                }
+                return body;
+            });
+        }).then(function (data) {
+            previewCache[documentId] = data;
+            return data;
+        });
+    }
+
+    function showSourcePreview(documentId, bbox) {
+        fetchDocumentPreview(documentId).then(function (data) {
+            const pages = data.pages_base64 || [];
+            if (!pages.length) {
+                addLine('No preview available for this source document.', 'warn');
+                return;
+            }
+            const requestedPage = bbox && typeof bbox.page === 'number' ? bbox.page : 0;
+            currentPreview = {
+                pages: pages,
+                pageMimetype: data.page_mimetype,
+                pageIndex: Math.max(0, Math.min(requestedPage, pages.length - 1)),
+                bbox: bbox || null,
+            };
+            renderPreviewPage();
+            previewOverlay.style.display = 'flex';
+        }).catch(function (err) {
+            addLine('Preview error: ' + err.message, 'warn');
+        });
+    }
+
+    previewPrevBtn.addEventListener('click', function () {
+        if (!currentPreview || currentPreview.pageIndex <= 0) {
+            return;
+        }
+        currentPreview.pageIndex -= 1;
+        renderPreviewPage();
+    });
+
+    previewNextBtn.addEventListener('click', function () {
+        if (!currentPreview || currentPreview.pageIndex >= currentPreview.pages.length - 1) {
+            return;
+        }
+        currentPreview.pageIndex += 1;
+        renderPreviewPage();
+    });
+
+    previewCloseBtn.addEventListener('click', function () {
+        previewOverlay.style.display = 'none';
     });
 
     function addLine(text, kind) {
@@ -174,8 +293,30 @@ $copilotIsAuthorized = !empty($session->get('copilot_access_token'));
 
     function renderAnswer(result) {
         (result.verified_claims || []).forEach(function (c) {
-            addLine('\u2022 ' + c.text, 'answer');
+            const div = document.createElement('div');
+            div.style.margin = '4px 0';
+            div.appendChild(document.createTextNode('\u2022 ' + c.text));
+
+            // Citation Contract's required click-to-source visual overlay: only document-sourced
+            // claims carry a bbox (FHIR/guideline citations have no page location to show).
+            const source = c.source || {};
+            if (source.source_type === 'document' && source.bbox) {
+                const link = document.createElement('button');
+                link.type = 'button';
+                link.className = 'btn btn-link btn-sm';
+                link.style.padding = '0';
+                link.style.marginLeft = '4px';
+                link.style.fontSize = '11px';
+                link.style.verticalAlign = 'baseline';
+                link.textContent = '[view source]';
+                link.addEventListener('click', function () {
+                    showSourcePreview(source.source_id, source.bbox);
+                });
+                div.appendChild(link);
+            }
+            messagesEl.appendChild(div);
         });
+        messagesEl.scrollTop = messagesEl.scrollHeight;
         (result.stripped_claims || []).forEach(function (c) {
             addLine('[withheld -- could not verify: ' + c.reason + ']', 'warn');
         });
@@ -189,15 +330,19 @@ $copilotIsAuthorized = !empty($session->get('copilot_access_token'));
         if (allowRetry === undefined) {
             allowRetry = true;
         }
+        const requestBody = {
+            pid: pid,
+            message: message,
+            conversation_history: conversationHistory,
+            csrf_token: csrfToken,
+        };
+        if (pendingDocumentForChat) {
+            requestBody.pending_document = pendingDocumentForChat;
+        }
         return fetch(proxyUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                pid: pid,
-                message: message,
-                conversation_history: conversationHistory,
-                csrf_token: csrfToken,
-            }),
+            body: JSON.stringify(requestBody),
         }).then(function (resp) {
             if (resp.status === 401) {
                 return resp.json().then(function () {
@@ -233,6 +378,7 @@ $copilotIsAuthorized = !empty($session->get('copilot_access_token'));
         showLoading();
         send(message).then(function (result) {
             hideLoading();
+            pendingDocumentForChat = null;  // sent (or attempted) -- don't reattach to a later message
             renderAnswer(result);
         }).catch(function (err) {
             hideLoading();
@@ -242,6 +388,7 @@ $copilotIsAuthorized = !empty($session->get('copilot_access_token'));
                 });
                 return;
             }
+            pendingDocumentForChat = null;
             addLine('Error: ' + err.message, 'warn');
         });
     }
@@ -320,6 +467,20 @@ $copilotIsAuthorized = !empty($session->get('copilot_access_token'));
         fileInput.click();
     });
 
+    // btoa(String.fromCharCode(...)) chokes on large files (call-stack limits on the spread) --
+    // this chunks the conversion instead, same approach as most base64-encode-a-Blob snippets.
+    function _fileToBase64(file) {
+        return file.arrayBuffer().then(function (buffer) {
+            const bytes = new Uint8Array(buffer);
+            let binary = '';
+            const CHUNK = 0x8000;
+            for (let i = 0; i < bytes.length; i += CHUNK) {
+                binary += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+            }
+            return btoa(binary);
+        });
+    }
+
     function submitUpload(file, docType) {
         removeQuickStartPrompt();
         addLine('Uploading ' + file.name + ' (' + docType + ')...', 'user');
@@ -328,6 +489,19 @@ $copilotIsAuthorized = !empty($session->get('copilot_access_token'));
             hideLoading();
             fileInput.value = '';
             renderIngestResult(docType, result);
+            // Citation Contract's required click-to-source overlay: stash this file so the
+            // clinician's very next question attaches it as pending_document too, giving that
+            // answer a chance to cite specific fields from it with a clickable, bbox-located
+            // source -- this standalone /ingest call above never produces one on its own.
+            return _fileToBase64(file).then(function (base64) {
+                pendingDocumentForChat = {
+                    data_base64: base64,
+                    filename: file.name,
+                    doc_type: docType,
+                    mimetype: file.type || 'application/pdf',
+                };
+                addLine('(Ask a question now to get an answer that can cite specific fields from this document.)', 'warn');
+            });
         }).catch(function (err) {
             hideLoading();
             if (err.reauthRequired) {

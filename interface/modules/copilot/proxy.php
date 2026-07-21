@@ -73,6 +73,14 @@ if (!CsrfUtils::verifyCsrfToken($body['csrf_token'] ?? '', session: $session)) {
 $pid = (int) ($body['pid'] ?? 0);
 $message = trim((string) ($body['message'] ?? ''));
 $conversationHistory = $body['conversation_history'] ?? [];
+// Citation Contract's required click-to-source visual overlay: a document uploaded via
+// upload.php is persisted immediately, but a citation from it only carries a bbox when the
+// intake-extractor worker processes it *within* a chat turn (graph.py's pending_document path),
+// not from the standalone /ingest call upload.php makes. widget.php stashes the just-uploaded
+// file and attaches it here as pending_document on the clinician's next question, so that
+// question's answer can cite specific fields with a clickable source -- not just a citation-less
+// "extracted N results" summary. See widget.php's pendingDocumentForChat for the JS side.
+$pendingDocument = $body['pending_document'] ?? null;
 if ($pid <= 0 || $message === '') {
     copilot_fail(400, 'pid and message are required');
 }
@@ -122,14 +130,23 @@ if (empty($accessToken)) {
     copilot_fail(401, 'reauth_required');
 }
 
+$chatPayload = [
+    'patient_id' => $patientUuid,
+    'message' => $message,
+    'conversation_history' => $conversationHistory,
+];
+if ($pendingDocument !== null) {
+    // patient_pid is the OpenEMR-native int pid attach_and_extract's document/procedure/medication
+    // endpoints need -- distinct from patient_id above (the FHIR uuid), same convention upload.php
+    // already uses for /ingest.
+    $chatPayload['patient_pid'] = (string) $pid;
+    $chatPayload['pending_document'] = $pendingDocument;
+}
+
 try {
     $agentResp = $httpClient->post(rtrim(COPILOT_AGENT_BASE_URL, '/') . '/chat', [
         'headers' => ['Authorization' => 'Bearer ' . $accessToken],
-        'json' => [
-            'patient_id' => $patientUuid,
-            'message' => $message,
-            'conversation_history' => $conversationHistory,
-        ],
+        'json' => $chatPayload,
         'http_errors' => false,
         // Longer than the shared client's default 30s -- the agent's own tool-calling/LLM turn can
         // legitimately run past that. Kept under Apache's own 60s `Timeout` directive (see

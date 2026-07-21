@@ -178,8 +178,53 @@ def dorothy_simmons() -> None:
     )
 
 
+def multipage_lab_panel() -> None:
+    """A genuinely multi-page lab PDF (Maria Gonzalez, a follow-up panel) -- purpose-built to test
+    the click-to-source bbox overlay (Citation Contract) across a page boundary. Every other
+    fixture here is a single page; `_write_pdf` only supports one, so this writes two pages
+    directly rather than extending it for a one-off case."""
+    doc = fitz.open()
+
+    page1 = doc.new_page()
+    y = 60
+    for line in [
+        "Riverside Community Lab -- Page 1 of 2",
+        "Patient: Maria Gonzalez     DOB: 1985-03-14",
+        "Collected: 2026-07-18 08:00    Ordering: Dr. A. Reyes",
+        "",
+        "Complete Blood Count (CBC):",
+        "Test                     Result      Units      Reference Range    Flag",
+        "White Blood Cell Count   6.1         K/uL       4.0-11.0",
+        "Hemoglobin               15.2        g/dL       12.0-15.5",
+        "Platelets                240         K/uL       150-400",
+    ]:
+        page1.insert_text((50, y), line, fontsize=11)
+        y += 18
+
+    page2 = doc.new_page()
+    y = 60
+    for line in [
+        "Riverside Community Lab -- Page 2 of 2",
+        "Patient: Maria Gonzalez     DOB: 1985-03-14",
+        "",
+        "Basic Metabolic Panel:",
+        "Test                     Result      Units      Reference Range    Flag",
+        "Glucose, Fasting         168         mg/dL      70-99              HIGH",
+        "Sodium                   138         mmol/L     136-145",
+        "Potassium                4.4         mmol/L     3.5-5.1",
+        "Creatinine               1.0         mg/dL      0.6-1.3",
+    ]:
+        page2.insert_text((50, y), line, fontsize=11)
+        y += 18
+
+    doc.save(os.path.join(OUT_DIR, "maria_gonzalez_multipage_lab.pdf"))
+    doc.close()
+    print("wrote maria_gonzalez_multipage_lab.pdf")
+
+
 if __name__ == "__main__":
     maria_gonzalez()
     james_whitfield()
     robert_chen()
     dorothy_simmons()
+    multipage_lab_panel()

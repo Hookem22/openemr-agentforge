@@ -191,9 +191,48 @@ built (`tools.py`'s existing `resource_type`/`id`/`date` fields), not replaced. 
 (existing), `extracted_facts` (new, from §2), and `evidence_snippets` (new, from §4). This is a backward-
 compatible additive change — no existing citation-producing code path is removed.
 
-**Visual bounding-box overlay** (required, not stretch): the document-preview pane in the widget renders a
-highlight box at `{page, bbox}` when a citation from a `document`-sourced claim is clicked, using the
-coordinates Claude's vision extraction already returns per field (§2.3).
+**Visual bounding-box overlay** (required, not stretch; grader-flagged fix, Final feedback — this section
+previously described the feature as done when it wasn't actually built in the UI). Clicking `[view source]`
+next to a document-sourced claim opens a preview overlay showing the exact source page with a highlight box
+at the claim's `bbox`, with Prev/Next page navigation for multi-page documents.
+
+Deliberately **not** client-side PDF rendering (no PDF.js or similar dependency): the preview re-rasterizes
+the source document server-side with the *exact same* `rasterize_to_page_images()` call
+`attach_and_extract` uses at extraction time, and serves one PNG per page. Since `bbox` is already
+normalized (0.0-1.0), the browser just needs `left/top/width/height` percentages on an absolutely-positioned
+div over the rendered `<img>` — no coordinate-space conversion between "PDF points" and "displayed pixels" to
+get wrong, and no risk of the preview's rendering subtly disagreeing with what the model actually saw.
+
+Getting the data to the browser needed one more piece than the citation contract alone: `bbox` lives as a
+sibling field on each extracted record (schemas.py's `_ExtractedField`), not inside `Citation` itself, so it
+was never threaded into the flattened `{text, citation}` facts `_flatten_extracted_facts` builds, into
+`PROVIDE_ANSWER_TOOL`'s claim schema, or into `SYSTEM_PROMPT`'s citation-copying instruction — all three
+now carry it through additively (the underlying 5-field `Citation` contract itself is unchanged).
+
+New agent endpoint `POST /document_preview` (multipart: raw file bytes + mimetype) returns
+`{page_mimetype, pages_base64}`. It takes bytes directly rather than fetching them itself, and
+`interface/modules/copilot/document_preview.php` fetches from OpenEMR — three real, live-testing-found
+bugs shaped this design, none hypothetical:
+1. OpenEMR's own `GET /api/patient/:pid/document/:did` (`DocumentRestController::downloadFile` ->
+   `DocumentService::getFile()` -> `C_Document`'s constructor) throws "CSRF key is empty" when called via
+   Bearer-token REST auth — that code path's CSRF handling assumes a traditional browser session. Fixed by
+   having `document_preview.php` call `DocumentService::getFile()` directly from its own real,
+   already-authenticated session (same "authorization inheritance" principle as `proxy.php`/`upload.php`)
+   instead of routing through OpenEMR's REST API at all.
+2. `DocumentService::getFile()`'s `'file'` key is the raw byte content (`C_Document::retrieve_action()`
+   with `disable_exit=true` returns `file_get_contents($url)` directly), not a file path — an earlier
+   version of `document_preview.php` wrongly called `is_readable()`/`file_get_contents()` on it, which
+   silently "worked" (both just returned false on the garbage pseudo-path) and always reported a real,
+   existing document as not found.
+3. `BBOX_SCHEMA`'s `page` field had no indexing instruction, so Claude naturally reported the human-facing
+   1-indexed page number printed on the page itself ("Page 2 of 2") instead of the 0-indexed value
+   `rasterize_to_page_images()`'s page list actually uses — silently highlighting the wrong page for any
+   citation past a document's first page. Fixed by adding an explicit instruction to the schema.
+
+All three were caught only because this was tested by actually driving the real widget through a real
+browser session against a real 2-page fixture (`maria_gonzalez_multipage_lab.pdf`) — none would have been
+caught by a stubbed unit test alone, which is why `test_full_flow_integration.py` (§13) exists as a
+genuine end-to-end integration test, not just a mocked one.
 
 ## 6. Eval Gate (50-Case Golden Set, PR-Blocking)
 
