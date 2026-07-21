@@ -1027,4 +1027,7 @@ Remediation, in priority order (lowest rubric score earned first, per the plan d
    got back 7 verified claims each with a correct `bbox` (page 0 for the CBC panel, page 1 for the
    metabolic panel), clicked through to the preview, and the highlight box landed exactly on the cited
    table row. Full Tier 1 suite: **123 tests**; ruff, mypy, bandit, pip-audit all clean.
+   Confirmed with a real watched GitHub Actions run: commit `590bfdc0`, CI run
+   [`29861901578`](https://github.com/Hookem22/openemr-agentforge/actions/runs/29861901578) — green in
+   1m25s.
 6. Remaining P2/P3 items per the plan doc, in order.
