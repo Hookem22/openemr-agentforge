@@ -170,6 +170,11 @@ existing redaction contract — no new PHI surface is introduced by adding nodes
   with the existing "thin service calling a small number of external APIs" pattern; Voyage is Anthropic's
   recommended embeddings partner. Documented as a deliberate substitution for the assignment's literal "Cohere
   Rerank or equivalent" wording.
+- **Reranker's contribution is measured, not just wired** (grader-flagged fix, Final feedback): `retrieve()`
+  logs a `hybrid_retrieval` span (child of `evidence_retriever`) recording whether rerank actually reordered
+  the fusion stage's naive top-k (`reranker_changed_top_k`) and how many fusion-stage candidates it vetoed
+  below `MIN_RELEVANCE_SCORE` (`reranker_filtered_count`) — real per-call evidence the rerank step is doing
+  something, not just present in the code path. See `Week 2/OBSERVABILITY.md`'s span table.
 
 ## 5. Citation Contract (unified, with migration note)
 

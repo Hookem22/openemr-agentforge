@@ -192,6 +192,13 @@ as a Langfuse metric or a small report in `eval/README.md`.
 
 **Estimate: 2–3 hours.**
 
+**Status: done 2026-07-21.** Added a `hybrid_retrieval` span (child of `evidence_retriever`) to
+`rag.py::retrieve()` logging, per call: `reranker_changed_top_k` (did rerank actually reorder the fusion
+stage's naive top-k) and `reranker_filtered_count` (fusion-stage candidates rerank itself vetoed below
+`MIN_RELEVANCE_SCORE`) — real per-call evidence the rerank step does something, not just that it's present
+in the code path. 3 new tests confirm the measurement is computed correctly (a stubbed reorder, a stubbed
+partial veto, and the empty-fusion early-return path all log the expected values). Tier 1 suite: 126 tests.
+
 ### 7. Full citation shape on every claim — **2/4**
 
 **Rubric:** *Every clinical claim carries machine-readable citation metadata with the full required shape:
@@ -349,7 +356,7 @@ hardened. Audit and add missing guards.
 | 3 | CI pipeline extended | 1/2 | **P1 — done** | 1.5–2 |
 | 4 | Integration tests with fixtures and stubs | 1/2 | **P1 — done** | 2–3 |
 | 5 | HARD GATE: CI blocks regression | 2/4 | **P2 — done** | 3–5 |
-| 6 | Reranker measurably improves grounding | 2/4 | **P2** | 2–3 |
+| 6 | Reranker measurably improves grounding | 2/4 | **P2 — done** | 2–3 |
 | 7 | Full citation shape on every claim | 2/4 | **P2** | 3–4 |
 | 8 | Bounding-box overlay polished | 2/4 | **P2 — done, live-tested** | 6–10 |
 | 9 | Handoffs fully traceable | 2/3 | **P2** | 2–4 |

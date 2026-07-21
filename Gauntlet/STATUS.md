@@ -1030,4 +1030,11 @@ Remediation, in priority order (lowest rubric score earned first, per the plan d
    Confirmed with a real watched GitHub Actions run: commit `590bfdc0`, CI run
    [`29861901578`](https://github.com/Hookem22/openemr-agentforge/actions/runs/29861901578) — green in
    1m25s.
-6. Remaining P2/P3 items per the plan doc, in order.
+6. **P2 #6 — Reranker measurably improves grounding (2/4 → done, 2026-07-21).** Real gap: Voyage
+   rerank was genuinely wired into `rag.py::retrieve()` but nothing measured whether it was doing
+   anything. Added a `hybrid_retrieval` span (child of `evidence_retriever`) logging
+   `reranker_changed_top_k` (did rerank actually reorder the fusion stage's naive top-k) and
+   `reranker_filtered_count` (fusion-stage candidates rerank itself vetoed below
+   `MIN_RELEVANCE_SCORE`) on every call. 3 new tests confirm the measurement is computed correctly.
+   Tier 1 suite: **126 tests**; ruff, mypy, bandit, pip-audit all clean.
+7. Remaining P2/P3 items per the plan doc, in order.

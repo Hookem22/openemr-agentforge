@@ -17,6 +17,7 @@ definitions to enter in the Langfuse UI, plus what's already emitted in code for
 | `supervisor` (Section 9 calls this `worker_handoff` conceptually -- same span, actual code name is `supervisor`) | `agent/app/graph.py::supervisor_node` | `routed_to`, `reason` (a static heuristic label, never patient data), `handoff_index` (metadata) |
 | `intake_extractor` | `agent/app/graph.py::intake_extractor_node` | outcome (`success`, `fact_count`, `document_id`), `handoff_index` (metadata) |
 | `evidence_retriever` (Section 9 calls this `evidence_retrieval` conceptually -- same span, actual code name is `evidence_retriever`) | `agent/app/graph.py::evidence_retriever_node` | outcome (`success`, `result_count`), `handoff_index` (metadata) |
+| `hybrid_retrieval` (child of `evidence_retriever`, added 2026-07-21 -- grader-flagged fix, Final feedback: rerank was wired into `retrieve()` but nothing measured whether it was doing anything) | `agent/app/rag.py::retrieve` | `fused_candidates`, `results`, `reranker_changed_top_k` (bool -- did rerank actually reorder the fusion-stage's naive top-k), `reranker_filtered_count` (candidates that survived fusion but scored below `MIN_RELEVANCE_SCORE` on rerank -- a real veto), `top_relevance_score` |
 
 `handoff_index` (added 2026-07-16): the position of a supervisor decision in `handoff_log`. The
 supervisor span and whichever worker span it routed to share the same value, so a grader can group
