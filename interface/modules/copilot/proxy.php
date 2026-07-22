@@ -85,6 +85,29 @@ if ($pid <= 0 || $message === '') {
     copilot_fail(400, 'pid and message are required');
 }
 
+// Care-team check (THREAT_MODEL.md's highest-priority finding, confirmed exploitable --
+// AgentForge vulnerability report #1, exploit_record a9679b77-827a-408b-b32a-00834c69d5f8):
+// aclCheckCore('patients', 'med') above is a role-level capability check only -- it says nothing
+// about whether *this* user has any documented relationship with *this* pid, which comes straight
+// from the client's request body. Any user holding the general 'patients'/'med' capability could
+// pass any other patient's pid and have the agent answer from that patient's real chart.
+//
+// A user is on a patient's care team if they're the patient's assigned provider (patient_data.
+// providerID) or have a documented encounter with them (form_encounter.provider_id) -- the same
+// provider-relationship signals OpenEMR itself already records elsewhere (Care Coordination's CCDA
+// export, portal reporting), just never enforced here before.
+$authUserId = (int) ($session->get('authUserID') ?? 0);
+$careTeamRow = sqlQuery(
+    'SELECT 1 FROM patient_data WHERE pid = ? AND providerID = ?
+     UNION
+     SELECT 1 FROM form_encounter WHERE pid = ? AND provider_id = ?
+     LIMIT 1',
+    [$pid, $authUserId, $pid, $authUserId]
+);
+if (empty($careTeamRow)) {
+    copilot_fail(403, 'not authorized: no documented care-team relationship with this patient');
+}
+
 // Resolve the OpenEMR-native pid to its FHIR Patient uuid -- the JS side never sees or handles
 // FHIR ids directly, only the pid it already has from the page it's embedded in.
 $patientRow = sqlQuery('SELECT `uuid` FROM `patient_data` WHERE `pid` = ?', [$pid]);
