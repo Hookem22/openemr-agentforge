@@ -16,6 +16,20 @@ from .config import settings
 from .retry import retry_idempotent_http
 
 
+def _raise_with_body(resp: httpx.Response) -> None:
+    """resp.raise_for_status() alone discards the response body -- for a 4xx/5xx from OpenEMR's
+    OAuth2/FHIR layer that body is usually the only place the real reason lives (e.g. an
+    insufficient_scope error, or an ACL-denial message distinct from a plain "403 Forbidden"), and
+    losing it meant tool_failures/graph.py's logging only ever showed the status line, never why.
+    Bounded to 500 chars -- enough to see the real error, not enough to flood logs on a large body."""
+    try:
+        resp.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        raise httpx.HTTPStatusError(
+            f"{exc}\nresponse body: {resp.text[:500]}", request=exc.request, response=exc.response
+        ) from None
+
+
 def _parse_json(resp: httpx.Response) -> dict:
     """OpenEMR occasionally emits a PHP warning as raw HTML ahead of the JSON body on certain
     malformed records (observed: FhirAllergyIntoleranceService.php foreach() on a non-array
@@ -45,7 +59,7 @@ class FhirClient:
             headers={"Authorization": f"Bearer {self.bearer_token}"},
             timeout=10.0,
         )
-        resp.raise_for_status()
+        _raise_with_body(resp)
         bundle = _parse_json(resp)
         return [entry["resource"] for entry in bundle.get("entry", [])]
 
@@ -56,5 +70,5 @@ class FhirClient:
             headers={"Authorization": f"Bearer {self.bearer_token}"},
             timeout=10.0,
         )
-        resp.raise_for_status()
+        _raise_with_body(resp)
         return _parse_json(resp)
