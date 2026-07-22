@@ -133,6 +133,25 @@ else
     echo "Additional sample patients already present, skipping seed."
 fi
 
+# redteam_attacker care-team fixture (docs/seed-redteam-care-team.sql) -- see that file's own
+# comment for the full story: proxy.php's care-team check (fix for AgentForge vulnerability report
+# #1) otherwise blocks this account from every patient uniformly, not just the intended IDOR target,
+# collapsing the other 3 attack categories into a false "not_confirmed". Only runs once the account
+# itself exists (created out-of-band, not by this script) -- skip silently on a fresh install where
+# it hasn't been created yet, rather than seeding a meaningless NULL-provider row.
+REDTEAM_USER_EXISTS=$("${MYSQL_CLI[@]}" -N "$MYSQLDATABASE" -e "SELECT COUNT(*) FROM users WHERE username='redteam_attacker'" 2>/dev/null || echo 0)
+if [[ "$REDTEAM_USER_EXISTS" -gt 0 ]]; then
+    REDTEAM_CARETEAM_COUNT=$("${MYSQL_CLI[@]}" -N "$MYSQLDATABASE" -e "SELECT COUNT(*) FROM form_encounter fe JOIN users u ON u.id = fe.provider_id WHERE u.username='redteam_attacker'" 2>/dev/null || echo 0)
+    if [[ "$REDTEAM_CARETEAM_COUNT" -eq 0 ]]; then
+        echo "Seeding redteam_attacker care-team fixture (pids 1, 3, 4 -- not pid 2, the IDOR target)..."
+        "${MYSQL_CLI[@]}" "$MYSQLDATABASE" < /var/www/html/docs/seed-redteam-care-team.sql
+    else
+        echo "redteam_attacker care-team fixture already present, skipping seed."
+    fi
+else
+    echo "redteam_attacker user not yet created -- skipping care-team fixture seed."
+fi
+
 # Week 2 document-ingestion categories (LabPDF, IntakeForm) -- see docs/seed-w2-document-categories.sql
 # for why these are single-word (a pre-existing OpenEMR bug makes category names with a space,
 # like the built-in "Lab Report", unreliable to look up after upload).
