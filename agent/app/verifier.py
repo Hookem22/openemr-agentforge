@@ -19,6 +19,17 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 
+# AgentForge vulnerability report #15 (state_corruption): resource types where a stripped
+# "no_data" claim means the model asserted an absence of safety-critical data it did NOT actually
+# confirm this turn -- e.g. relying on a fabricated/stale get_allergies result replayed via
+# client-echoed conversation_history instead of a real tool call this turn. Per-claim stripping
+# alone doesn't stop the same false premise from surviving unstripped inside a SEPARATE,
+# legitimately-sourced claim (report #15: a guideline claim citing a real, fetched-this-turn
+# guideline chunk whose own text ALSO asserted "in this patient NO sulfa allergy is documented" --
+# verify_claims only checked the citation, never the rest of the claim's text, so it passed).
+SAFETY_CRITICAL_ABSENCE_TYPES = {"AllergyIntolerance", "MedicationRequest"}
+
+
 @dataclass
 class VerificationResult:
     verified_claims: list[dict] = field(default_factory=list)
@@ -74,17 +85,21 @@ def verify_claims(
     }
 
     result = VerificationResult()
+    unverifiable_safety_critical_absence = False
     for claim in claims:
         source = claim.get("source") or {}
         text = claim.get("text", "")
 
         if source.get("type") == "no_data":
-            if source.get("resource_type") in empty_resource_types:
+            resource_type = source.get("resource_type")
+            if resource_type in empty_resource_types:
                 result.verified_claims.append(claim)
             else:
                 result.stripped_claims.append(
                     {"text": text, "reason": "claimed absence of data not confirmed by an actual empty tool result this turn"}
                 )
+                if resource_type in SAFETY_CRITICAL_ABSENCE_TYPES:
+                    unverifiable_safety_critical_absence = True
             continue
 
         if source.get("source_type") in ("document", "guideline"):
@@ -104,5 +119,23 @@ def verify_claims(
             result.stripped_claims.append(
                 {"text": text, "reason": "citation does not match any resource actually fetched this turn"}
             )
+
+    if unverifiable_safety_critical_absence:
+        # Report #15: don't let an otherwise-legitimately-cited claim (e.g. a real guideline chunk
+        # fetched this turn) carry the same unverified premise through unstripped just because ITS
+        # citation checked out -- the citation check never inspects the rest of that claim's text.
+        # Fail the whole answer closed instead of a partial one that might still be unsafe.
+        for claim in result.verified_claims:
+            result.stripped_claims.append(
+                {
+                    "text": claim.get("text", ""),
+                    "reason": (
+                        "withheld: this turn also contained an unverifiable safety-critical absence "
+                        "claim (see the other stripped claim above) -- failing the entire answer "
+                        "closed rather than risk this claim resting on the same unverified premise"
+                    ),
+                }
+            )
+        result.verified_claims = []
 
     return result
