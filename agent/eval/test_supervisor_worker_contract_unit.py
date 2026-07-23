@@ -70,6 +70,7 @@ def test_agent_state_declares_exactly_the_fields_every_node_relies_on():
         "tool_failures", "verified_claims", "stripped_claims", "pending_document",
         "document_processed", "extracted_facts", "evidence_snippets", "evidence_fetched",
         "evidence_empty", "correlation_id", "handoff_log", "handoff_span_context",
+        "agent_tool_iterations",
     }
     assert set(AgentState.__annotations__) == expected_fields
 
