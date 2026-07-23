@@ -31,6 +31,11 @@ evidence agent plan. [`Gauntlet/SUBMISSION.md`](Gauntlet/SUBMISSION.md) is the o
 
 **Deployed URL:** https://openemr-app-production-ded9.up.railway.app/ (login: `admin` / `pass`)
 
+**This is one of two repos for this submission.** Week 3's adversarial multi-agent security platform —
+which attacks and evaluates the Clinical Co-Pilot built here — lives in its own, separate repo:
+**https://labs.gauntletai.com/willparks/agentforce-security**. Both repos must be submitted together;
+see [`Gauntlet/STATUS.md`](Gauntlet/STATUS.md) for the full split history.
+
 ### Railway deployment (Stage 2)
 
 The deployed instance runs from the root [`Dockerfile`](Dockerfile) + [`docker/entrypoint.sh`](docker/entrypoint.sh)

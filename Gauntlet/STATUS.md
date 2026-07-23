@@ -4,14 +4,17 @@
 **Week 1 and Week 2 are complete and submitted** — see `Week 1/SUBMISSION.md` and the Week 2 sections below
 (both preserved as history).
 
-**Week 3 has moved to its own independent repo**: `ssh://git@labs.gauntletai.com:22022/willparks/agentforce-security.git`
-(extracted via `git cherry-pick` onto a fresh orphan branch, real commit history/authorship preserved —
-see that repo's own `README.md` "Repo split" section for why). All further Week 3 work — `redteam/`,
-`contracts/`, `evals/`, `THREAT_MODEL.md`, `ARCHITECTURE.md`, `USERS.md`, and that repo's own `STATUS.md`
-— happens there, not in this repo. The Week 3 build log below (up through the human-approval gate) is
-preserved here as history; the live copy going forward is in the new repo's `STATUS.md`. This repo
-remains the Clinical Co-Pilot / OpenEMR fork the new repo's platform tests, deployed at
-`https://openemr-app-production-ded9.up.railway.app/`.
+**Week 3 has moved to its own independent repo — a separate submission, required alongside this one**:
+**https://labs.gauntletai.com/willparks/agentforce-security** (extracted via `git cherry-pick` onto a
+fresh orphan branch, real commit history/authorship preserved — see that repo's own `README.md` "Repo
+split" section for why). All further Week 3 work — `redteam/`, `contracts/`, `evals/`, `THREAT_MODEL.md`,
+`ARCHITECTURE.md`, `USERS.md`, and that repo's own `STATUS.md` — happens there, not in this repo. **This
+repo's own top-level `redteam/`, `contracts/`, and `evals/` directories were deleted** once the new repo
+had them in full (they were a partial, increasingly stale snapshot frozen at the moment of the split —
+keeping them around risked a grader mistaking that incomplete copy for the real, current platform). The
+Week 3 build log below (up through the human-approval gate) is preserved here as history; the live copy
+going forward is in the new repo's `STATUS.md`. This repo remains the Clinical Co-Pilot / OpenEMR fork
+the new repo's platform tests, deployed at `https://openemr-app-production-ded9.up.railway.app/`.
 
 **Overall state: Week 3 kicked off today (2026-07-20).** Architecture-defense artifacts are done
 (`Gauntlet/Week 3/ARCHITECTURE.md` draft, slides, LangGraph diagram). The two remaining MVP hard gates —
