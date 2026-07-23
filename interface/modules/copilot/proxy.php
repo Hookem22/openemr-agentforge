@@ -20,7 +20,7 @@ $sessionAllowWrite = true;
 require_once("../../globals.php");
 
 use GuzzleHttp\Client;
-use GuzzleHttp\Exception\RequestException;
+use GuzzleHttp\Exception\GuzzleException;
 use OpenEMR\Common\Acl\AclMain;
 use OpenEMR\Common\Csrf\CsrfUtils;
 use OpenEMR\Common\Session\SessionWrapperFactory;
@@ -144,7 +144,7 @@ if (!empty($accessToken) && $expiresAt < (time() + 60) && !empty($refreshToken))
         } else {
             $accessToken = null;
         }
-    } catch (RequestException) {
+    } catch (GuzzleException) {
         $accessToken = null;
     }
 }
@@ -178,7 +178,15 @@ try {
         // clean JSON error) -- and comfortably under this script's set_time_limit(75) above too.
         'timeout' => 45,
     ]);
-} catch (RequestException $exc) {
+} catch (GuzzleException $exc) {
+    // Bug found via AgentForge report #10/#14's retest: a slow-but-now-correctly-bounded agent
+    // turn (MAX_TOOL_ITERATIONS_PER_TURN, agent/app/graph.py) can still legitimately take longer
+    // than this 45s timeout to finish all its rounds. When that fires mid-transfer (connection
+    // established, response not yet received), Guzzle throws ConnectException -- which extends
+    // TransferException, NOT RequestException -- so a `catch (RequestException)` here silently
+    // let it escape uncaught, surfacing as OpenEMR's generic 500 error page instead of this clean
+    // 502. GuzzleException is the interface every Guzzle exception implements, so nothing from
+    // this call can escape uncaught again regardless of which concrete class is thrown.
     copilot_fail(502, 'could not reach the Clinical Co-Pilot agent service: ' . $exc->getMessage());
 }
 
