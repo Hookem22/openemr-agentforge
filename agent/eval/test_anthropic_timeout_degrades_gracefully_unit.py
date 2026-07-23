@@ -93,3 +93,14 @@ def test_anthropic_client_is_constructed_with_an_explicit_timeout():
     from app.graph import ANTHROPIC_CALL_TIMEOUT_SECONDS
 
     assert 0 < ANTHROPIC_CALL_TIMEOUT_SECONDS < 45
+
+
+def test_anthropic_client_has_no_sdk_retries():
+    """Pins the second-order fix (identity_role_exploitation investigation, 2026-07-23): the SDK's
+    default max_retries=2 retries on timeout, and a genuinely slow-but-working synthesis call got
+    retried twice more -- one logical call measured 61.53s wall time (~3x the 20s timeout then in
+    effect), blowing straight through proxy.php's 45s budget. max_retries=0 here means the
+    per-attempt timeout is also the real worst-case latency for this client, not a multiple of it."""
+    from app.graph import _anthropic_client
+
+    assert _anthropic_client().max_retries == 0

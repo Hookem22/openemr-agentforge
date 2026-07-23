@@ -255,19 +255,32 @@ class AgentState(TypedDict):
 # times" prompt caused a call to run well past interface/modules/copilot/proxy.php's 45s Guzzle
 # timeout to this agent, with nothing on this side ever timing out or logging a failure -- proxy.php
 # just saw the connection go silent and, after this same investigation's GuzzleException fix,
-# returned a clean 502. 20s is comfortably above every legitimate call latency seen in real testing
-# (single-digit to ~25s for a full multi-tool turn) while still failing fast enough that a stuck or
-# rate-limited call doesn't dominate the 45s budget on its own.
-ANTHROPIC_CALL_TIMEOUT_SECONDS = 20.0
+# returned a clean 502.
+#
+# First shipped as 20s -- but a live Langfuse trace (identity_role_exploitation timeout
+# investigation, 2026-07-23) caught a second-order problem this created: the SDK's own max_retries
+# default (2) retries on timeout, and a genuinely slow-but-legitimately-working synthesis call
+# (a broad, real "summarize everything" question -- not malicious, just data-heavy) needed close to
+# 20s per attempt, got cut off, retried, cut off again, retried again -- one logical call measured
+# 61.53s wall time (~3 x 20s), blowing straight through proxy.php's 45s budget for a call that was
+# never actually stuck, just slow. Retrying a slow-but-working generation only repeats the same
+# slowness for no benefit, unlike retrying a genuinely dropped connection.
+#
+# Fix: raise the per-attempt ceiling to 35s (real synthesis calls for broad questions were landing
+# in the 20-30s range per that same trace, so this should let the *first* attempt actually finish
+# instead of needing a retry at all) and set max_retries=0 on this client specifically -- a
+# deliberate, narrower exception to retry.py's documented "leave Anthropic's own retries at the SDK
+# default" policy, scoped only to this client (used solely for agent_node/force_answer_node's
+# synthesis calls): those calls already degrade gracefully via the APIError handling below on any
+# failure, so losing transient-connection-error retries here trades a small amount of resilience
+# for a hard, predictable worst-case latency instead of an open-ended multiply-by-max_retries one.
+ANTHROPIC_CALL_TIMEOUT_SECONDS = 35.0
 
 
 def _anthropic_client() -> Anthropic:
     if not settings.anthropic_api_key:
         raise RuntimeError("ANTHROPIC_API_KEY is not set")
-    # max_retries deliberately left at the SDK default (2), retrying connection errors and
-    # 408/409/429/5xx (see app/retry.py's module docstring for the verified details) -- only the
-    # missing per-attempt timeout is added here, not a change to that retry policy.
-    return Anthropic(api_key=settings.anthropic_api_key, timeout=ANTHROPIC_CALL_TIMEOUT_SECONDS)
+    return Anthropic(api_key=settings.anthropic_api_key, timeout=ANTHROPIC_CALL_TIMEOUT_SECONDS, max_retries=0)
 
 
 def _latest_user_text(state: AgentState) -> str | None:
