@@ -8,6 +8,13 @@
 # (imagick, redis) present at image-build time.
 FROM php:8.2-apache
 
+# Railway passes its own RAILWAY_GIT_COMMIT_SHA as a build arg automatically for every git-connected
+# build (Dockerfile or not) -- undeclared build args are silently ignored, so it's never reached this
+# image until now. Persisted as a real runtime env var (not just a build-time ARG) so
+# interface/modules/copilot/version.php can report it -- see that file's comment for why this exists.
+ARG RAILWAY_GIT_COMMIT_SHA=unknown
+ENV DEPLOYED_COMMIT_SHA=$RAILWAY_GIT_COMMIT_SHA
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libzip-dev \
     libpng-dev \

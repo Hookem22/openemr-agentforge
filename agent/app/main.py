@@ -1,4 +1,5 @@
 import base64
+import os
 import time
 import uuid
 from typing import Literal
@@ -82,7 +83,11 @@ def _resolve_bearer_token(authorization: str | None) -> str:
 
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    # commit: same idea as interface/modules/copilot/version.php on the OpenEMR side -- lets a
+    # caller (or a human comparing the two) tell whether this service and the PHP side are actually
+    # running the same deploy, since they're two separate Railway services that can drift apart if
+    # only one side gets redeployed.
+    return {"status": "ok", "commit": os.environ.get("DEPLOYED_COMMIT_SHA", "unknown")}
 
 
 _READY_CACHE_TTL_SECONDS = 60.0  # avoid spending real Voyage tokens / hammering OpenEMR on every poll

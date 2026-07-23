@@ -1,4 +1,7 @@
 FROM python:3.12-slim
+# Same reasoning as the root Dockerfile's identical lines -- see that file's comment.
+ARG RAILWAY_GIT_COMMIT_SHA=unknown
+ENV DEPLOYED_COMMIT_SHA=$RAILWAY_GIT_COMMIT_SHA
 WORKDIR /app
 # Paths are relative to the repo root, not this directory: Railway's git-connected build for this
 # service uses the repo root as its build context (RAILWAY_DOCKERFILE_PATH points at this file, but
