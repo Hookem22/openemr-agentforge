@@ -71,9 +71,18 @@ MAX_HANDOFFS_PER_TURN = 6
 # "multiple passes" / "cross-reference everything" / "run through this multiple times" could drive
 # unbounded real tool calls (and unbounded Anthropic API cost) within a single turn, limited only by
 # each call's own 2048-token cap, not by call count. MAX_HANDOFFS_PER_TURN above caps a DIFFERENT
-# loop (supervisor's worker routing) and never bounded this one. 8 is generous headroom over any
-# legitimate multi-fact clinical question seen in real testing (rarely more than 2-3 rounds).
-MAX_TOOL_ITERATIONS_PER_TURN = 8
+# loop (supervisor's worker routing) and never bounded this one.
+#
+# First shipped as 8 -- correctly bounded the *number* of rounds, but a retest against the live
+# target found 8 real rounds (each a full Claude call + tool round-trip) routinely took longer than
+# interface/modules/copilot/proxy.php's 45s Guzzle timeout to the agent, so the adversarial prompt
+# still won by making the request time out -- a real, if bounded, denial of service. Each round can
+# already batch several tool calls in one Claude turn (execute_tools_node runs every tool_use block
+# in the latest message), so round *count*, not tool count, dominates latency. Lowered to 3: still
+# headroom over any legitimate multi-fact clinical question seen in real testing (rarely more than
+# 2-3 rounds), while keeping worst-case latency reliably inside proxy.php's timeout budget instead
+# of running right up against it.
+MAX_TOOL_ITERATIONS_PER_TURN = 3
 
 EVIDENCE_KEYWORDS = (
     "guideline", "guidelines", "recommend", "recommendation", "recommended",
