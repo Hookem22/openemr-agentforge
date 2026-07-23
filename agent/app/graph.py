@@ -66,6 +66,15 @@ from .verifier import verify_claims
 # the worst realistic case (document -> supervisor -> evidence -> supervisor -> agent = 4 hops).
 MAX_HANDOFFS_PER_TURN = 6
 
+# Confirmed DoS finding (THREAT_MODEL.md, AgentForge vulnerability reports #10/#14): the agent <->
+# execute_tools loop (route_after_agent below) had NO cap at all -- a prompt explicitly asking for
+# "multiple passes" / "cross-reference everything" / "run through this multiple times" could drive
+# unbounded real tool calls (and unbounded Anthropic API cost) within a single turn, limited only by
+# each call's own 2048-token cap, not by call count. MAX_HANDOFFS_PER_TURN above caps a DIFFERENT
+# loop (supervisor's worker routing) and never bounded this one. 8 is generous headroom over any
+# legitimate multi-fact clinical question seen in real testing (rarely more than 2-3 rounds).
+MAX_TOOL_ITERATIONS_PER_TURN = 8
+
 EVIDENCE_KEYWORDS = (
     "guideline", "guidelines", "recommend", "recommendation", "recommended",
     "should i", "should we", "target", "threshold", "screen", "screening",
@@ -200,6 +209,9 @@ class AgentState(TypedDict):
     # child of that specific decision. None when the decision was to finalize (routed to "agent"),
     # since no worker follows.
     handoff_span_context: TraceContext | None
+    # Count of agent<->execute_tools round-trips this turn -- capped by MAX_TOOL_ITERATIONS_PER_TURN
+    # in route_after_agent (see that constant's own comment for the DoS finding this closes).
+    agent_tool_iterations: int
 
 
 def _anthropic_client() -> Anthropic:
@@ -513,6 +525,10 @@ def route_after_agent(state: AgentState) -> str:
         return "verify"  # model responded with plain text -- shouldn't happen, fail safe to verify (0 claims)
     if tool_use["name"] == "provide_answer":
         return "verify"
+    if state["agent_tool_iterations"] >= MAX_TOOL_ITERATIONS_PER_TURN:
+        # Fail closed with whatever was gathered so far, same philosophy as _route_decision's
+        # handoff cap above -- a real answer built from partial data beats an unbounded loop.
+        return "verify"
     return "execute_tools"
 
 
@@ -578,12 +594,14 @@ def execute_tools_node(state: AgentState) -> AgentState:
         tool_result_blocks.append({"type": "tool_result", "tool_use_id": tool_use_id, "content": str(result)})
 
     state["messages"].append({"role": "user", "content": tool_result_blocks})
+    state["agent_tool_iterations"] += 1
     get_client().update_current_span(
         input={"tool_calls_requested": len(tool_result_blocks)},
         output={
             "tool_failures": len(state["tool_failures"]),
             "results_collected": len(state["tool_results_this_turn"]),
         },
+        metadata={"agent_tool_iterations": state["agent_tool_iterations"]},
     )
     return state
 
@@ -761,6 +779,7 @@ def run_turn(
             "correlation_id": correlation_id,
             "handoff_log": [],
             "handoff_span_context": None,
+            "agent_tool_iterations": 0,
         }
         result = COMPILED_GRAPH.invoke(initial_state)
         client.set_current_trace_io(
