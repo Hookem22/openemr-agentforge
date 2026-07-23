@@ -33,16 +33,18 @@ def test_route_after_agent_allows_execute_tools_below_the_cap():
     assert route_after_agent(state) == "execute_tools"
 
 
-def test_route_after_agent_forces_verify_at_the_cap():
+def test_route_after_agent_forces_force_answer_at_the_cap():
     """The exact failure mode a "run through this multiple times" prompt was exploiting: without
-    this cap, route_after_agent would return "execute_tools" forever."""
+    this cap, route_after_agent would return "execute_tools" forever. Routes to force_answer (not
+    verify directly) -- see that node's docstring for why: verify alone found zero claims to work
+    with when the last tool_use wasn't provide_answer."""
     state = _tool_use_state(MAX_TOOL_ITERATIONS_PER_TURN)
-    assert route_after_agent(state) == "verify"
+    assert route_after_agent(state) == "force_answer"
 
 
-def test_route_after_agent_still_forces_verify_well_past_the_cap():
+def test_route_after_agent_still_forces_force_answer_well_past_the_cap():
     state = _tool_use_state(MAX_TOOL_ITERATIONS_PER_TURN + 50)
-    assert route_after_agent(state) == "verify"
+    assert route_after_agent(state) == "force_answer"
 
 
 def test_provide_answer_always_routes_to_verify_regardless_of_iteration_count():
@@ -63,7 +65,14 @@ def test_full_turn_with_a_model_that_never_stops_requesting_tools_still_terminat
     """End-to-end proof, not just the routing function in isolation: a fake Anthropic client
     scripted to behave exactly like the adversarial prompt described in reports #10/#14 (always
     request another tool call, never call provide_answer) must still produce a finished turn in a
-    bounded number of real tool-call rounds, not hang or loop indefinitely."""
+    bounded number of real tool-call rounds, not hang or loop indefinitely.
+
+    The fake client here ignores which tools it was actually offered and always returns
+    get_medications -- even for force_answer_node's own call (which only offers provide_answer) --
+    so this specific artificial worst case still ends with zero claims, same as before force_answer
+    existed. A real model, offered ONLY provide_answer on that final call, has no other tool it
+    COULD request and would produce a real answer instead -- this test only proves the loop still
+    terminates cleanly even in the worst case, not that force_answer always succeeds."""
     import app.graph as graph_module
 
     call_count = {"n": 0}
@@ -87,8 +96,9 @@ def test_full_turn_with_a_model_that_never_stops_requesting_tools_still_terminat
     )
 
     # Exactly MAX_TOOL_ITERATIONS_PER_TURN rounds of real tool execution happened -- not one more,
-    # not unbounded -- before the cap forced finalization with whatever was gathered.
+    # not unbounded -- before the cap forced force_answer_node (agent_tool_iterations only
+    # increments in execute_tools_node, so force_answer's own extra call doesn't bump it further).
     assert result["agent_tool_iterations"] == MAX_TOOL_ITERATIONS_PER_TURN
     # The turn genuinely finished (reached verify_node, not stuck mid-loop) -- an empty answer here
-    # is expected and correct (the model never called provide_answer), not a crash.
+    # is expected and correct given this artificial fake client, not a crash.
     assert result["verified_claims"] == []

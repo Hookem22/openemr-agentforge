@@ -40,9 +40,11 @@ error... Client will be disabled" warning per call but does not raise -- the age
 """
 from __future__ import annotations
 
+import contextvars
 import hashlib
 import json
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
 import httpx
@@ -629,6 +631,56 @@ def agent_node(state: AgentState) -> AgentState:
     return state
 
 
+@observe(as_type="generation", name="force_answer_llm_call", capture_input=False, capture_output=False)
+def force_answer_node(state: AgentState) -> AgentState:
+    """Reached only when MAX_TOOL_ITERATIONS_PER_TURN is hit without the model ever calling
+    provide_answer -- confirmed live (identity_role_exploitation timeout investigation, 2026-07-23):
+    a broad "give me everything, don't filter" question can exhaust every round just requesting
+    more tools, and route_after_agent used to jump straight to verify in that case -- which found
+    provide_answer's own "claims" input missing (the last tool_use was some OTHER tool, not
+    provide_answer) and finalized with ZERO claims. Not a partial answer -- nothing at all, for a
+    clinician who may have asked a perfectly reasonable (if broad) question.
+
+    One final Claude call with ONLY provide_answer offered (no other tool schema included, so it
+    cannot request more data -- this cannot loop or re-trigger the cap) forces a best-effort
+    synthesis from whatever tool_results_this_turn already holds. verify_claims' existing grounding
+    check still applies afterward, so this cannot fabricate anything beyond what was actually
+    fetched -- it can only ever produce claims real data already supports, or no_data claims for
+    what genuinely wasn't checked."""
+    client = _anthropic_client()
+    try:
+        response = client.messages.create(
+            model=settings.anthropic_model,
+            max_tokens=2048,
+            system=SYSTEM_PROMPT + (
+                "\n\nYou have reached this turn's tool-call limit. You cannot request any more "
+                "tools -- call provide_answer now with the best answer you can build from the data "
+                "already gathered above. For anything you did not get a chance to check, say so "
+                "via a no_data claim rather than guessing or leaving it unmentioned."
+            ),
+            tools=[PROVIDE_ANSWER_TOOL],  # type: ignore[arg-type]
+            messages=state["messages"],  # type: ignore[arg-type]
+        )
+    except APIError as exc:
+        # Same degrade-gracefully contract as agent_node's own except -- verify_node will see 0
+        # claims (still better than crashing the turn).
+        get_client().update_current_generation(
+            model=settings.anthropic_model,
+            output={"error": f"{type(exc).__name__}: {exc}"},
+        )
+        return state
+    assistant_content = response.model_dump()["content"]
+    tool_calls_requested = [b["name"] for b in assistant_content if b.get("type") == "tool_use"]
+    get_client().update_current_generation(
+        model=settings.anthropic_model,
+        input={"message_count": len(state["messages"])},
+        output={"stop_reason": response.stop_reason, "tool_calls_requested": tool_calls_requested},
+        usage_details={"input": response.usage.input_tokens, "output": response.usage.output_tokens},
+    )
+    state["messages"].append({"role": "assistant", "content": assistant_content})
+    return state
+
+
 def _final_tool_use(state: AgentState) -> dict | None:
     last = state["messages"][-1]
     if last["role"] != "assistant":
@@ -646,9 +698,11 @@ def route_after_agent(state: AgentState) -> str:
     if tool_use["name"] == "provide_answer":
         return "verify"
     if state["agent_tool_iterations"] >= MAX_TOOL_ITERATIONS_PER_TURN:
-        # Fail closed with whatever was gathered so far, same philosophy as _route_decision's
-        # handoff cap above -- a real answer built from partial data beats an unbounded loop.
-        return "verify"
+        # Cap reached without the model ever calling provide_answer -- force_answer_node (not
+        # verify directly), so the turn still produces a real, grounded best-effort answer instead
+        # of silently finalizing with zero claims. See that node's own docstring for the live
+        # finding this closes.
+        return "force_answer"
     return "execute_tools"
 
 
@@ -668,6 +722,14 @@ def _call_tool(fhir: FhirClient, patient_id: str, name: str, tool_input: dict):
     return result
 
 
+def _run_requested_tool(fhir: FhirClient, patient_id: str, block: dict) -> tuple[str, str, object, httpx.HTTPError | None]:
+    name, tool_use_id, tool_input = block["name"], block["id"], block.get("input", {})
+    try:
+        return name, tool_use_id, _call_tool(fhir, patient_id, name, tool_input), None
+    except httpx.HTTPError as exc:
+        return name, tool_use_id, None, exc
+
+
 @observe(name="execute_tools", capture_input=False, capture_output=False)
 def execute_tools_node(state: AgentState) -> AgentState:
     # Redacted: `state` (arg and return value) holds the bearer token and every tool result this
@@ -677,13 +739,37 @@ def execute_tools_node(state: AgentState) -> AgentState:
     fhir = FhirClient(state["bearer_token"])
     tool_result_blocks = []
 
-    for block in last["content"]:
-        if block.get("type") != "tool_use" or block["name"] == "provide_answer":
-            continue
-        name, tool_use_id, tool_input = block["name"], block["id"], block.get("input", {})
-        try:
-            result = _call_tool(fhir, state["patient_id"], name, tool_input)
-        except httpx.HTTPError as exc:
+    tool_use_blocks = [
+        block for block in last["content"]
+        if block.get("type") == "tool_use" and block["name"] != "provide_answer"
+    ]
+
+    # Real bottleneck found live (identity_role_exploitation timeout investigation, 2026-07-23): a
+    # broad "give me everything" question can request many independent tools in a single round
+    # (patient/conditions/medications/labs/vitals/notes/encounters/allergies all at once, confirmed
+    # via a direct un-proxied call), and running them SEQUENTIALLY -- each its own real FHIR
+    # round-trip -- was the dominant cost, not round count (a direct call bypassing proxy.php's 45s
+    # wall still took 73s). These are independent, read-only GETs against the same FHIR server with
+    # no interdependency (FhirClient has no shared mutable state -- confirmed, it calls module-level
+    # httpx.get() per request), so running them concurrently cuts wall-clock time roughly
+    # proportionally to how many are batched, with zero change to total call volume/cost.
+    # contextvars.copy_context() propagates Langfuse's span context into each worker thread --
+    # ThreadPoolExecutor does NOT do this automatically (unlike asyncio tasks), so without it each
+    # tool call's span would show up unparented instead of nested under this node's own span. A
+    # fresh copy PER task, not one shared across all of them -- a single Context object cannot be
+    # entered (ctx.run) from more than one thread concurrently (confirmed live: sharing one context
+    # raised "cannot enter context: ... already entered" the moment two tasks tried to run at once).
+    results: list[tuple[str, str, object, httpx.HTTPError | None]] = []
+    if tool_use_blocks:
+        with ThreadPoolExecutor(max_workers=len(tool_use_blocks)) as pool:
+            futures = [
+                pool.submit(contextvars.copy_context().run, _run_requested_tool, fhir, state["patient_id"], block)
+                for block in tool_use_blocks
+            ]
+            results = [f.result() for f in futures]
+
+    for name, tool_use_id, result, exc in results:
+        if exc is not None:
             state["tool_failures"].append({"tool": name, "error": str(exc)})
             tool_result_blocks.append(
                 {
@@ -808,6 +894,7 @@ def build_graph():
     graph.add_node("allergy_safety_check", allergy_safety_node)
     graph.add_node("agent", agent_node)
     graph.add_node("execute_tools", execute_tools_node)
+    graph.add_node("force_answer", force_answer_node)
     graph.add_node("verify", verify_node)
 
     graph.set_entry_point("supervisor")
@@ -824,8 +911,13 @@ def build_graph():
     graph.add_edge("intake_extractor", "supervisor")
     graph.add_edge("evidence_retriever", "supervisor")
     graph.add_edge("allergy_safety_check", "supervisor")
-    graph.add_conditional_edges("agent", route_after_agent, {"execute_tools": "execute_tools", "verify": "verify"})
+    graph.add_conditional_edges(
+        "agent",
+        route_after_agent,
+        {"execute_tools": "execute_tools", "force_answer": "force_answer", "verify": "verify"},
+    )
     graph.add_edge("execute_tools", "agent")
+    graph.add_edge("force_answer", "verify")
     graph.add_edge("verify", END)
     return graph.compile()
 
