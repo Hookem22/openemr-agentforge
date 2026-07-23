@@ -48,7 +48,7 @@ from datetime import datetime, timezone
 import httpx
 from typing import TypedDict
 
-from anthropic import Anthropic
+from anthropic import Anthropic, APIError
 from langfuse import get_client, observe, propagate_attributes
 from langfuse.types import TraceContext
 from langgraph.graph import END, StateGraph
@@ -223,13 +223,27 @@ class AgentState(TypedDict):
     agent_tool_iterations: int
 
 
+# AgentForge report #10/#14 (DoS), the part MAX_TOOL_ITERATIONS_PER_TURN above doesn't cover: that
+# cap bounds how many *rounds* a turn can take, not how long any single round's Claude call is
+# allowed to run. The SDK's own default (`Timeout(connect=5.0, read=600, write=600, pool=600)`,
+# confirmed via `Anthropic(api_key=...).timeout`) lets ONE call sit for up to 10 minutes before
+# erroring -- confirmed live: an adversarial "cross-reference everything, run through this multiple
+# times" prompt caused a call to run well past interface/modules/copilot/proxy.php's 45s Guzzle
+# timeout to this agent, with nothing on this side ever timing out or logging a failure -- proxy.php
+# just saw the connection go silent and, after this same investigation's GuzzleException fix,
+# returned a clean 502. 20s is comfortably above every legitimate call latency seen in real testing
+# (single-digit to ~25s for a full multi-tool turn) while still failing fast enough that a stuck or
+# rate-limited call doesn't dominate the 45s budget on its own.
+ANTHROPIC_CALL_TIMEOUT_SECONDS = 20.0
+
+
 def _anthropic_client() -> Anthropic:
     if not settings.anthropic_api_key:
         raise RuntimeError("ANTHROPIC_API_KEY is not set")
-    # No explicit retry config: the SDK already defaults to max_retries=2, retrying connection
-    # errors and 408/409/429/5xx (see app/retry.py's module docstring for the verified details) --
-    # this is deliberate reliance on that default, not a missing retry.
-    return Anthropic(api_key=settings.anthropic_api_key)
+    # max_retries deliberately left at the SDK default (2), retrying connection errors and
+    # 408/409/429/5xx (see app/retry.py's module docstring for the verified details) -- only the
+    # missing per-attempt timeout is added here, not a change to that retry policy.
+    return Anthropic(api_key=settings.anthropic_api_key, timeout=ANTHROPIC_CALL_TIMEOUT_SECONDS)
 
 
 def _latest_user_text(state: AgentState) -> str | None:
@@ -497,13 +511,27 @@ def agent_node(state: AgentState) -> AgentState:
     client = _anthropic_client()
     # Tool schemas and messages are plain dicts, not the SDK's exact nested TypedDicts -- same
     # tradeoff as ingestion.py's extract_with_vision, see that comment for the reasoning.
-    response = client.messages.create(
-        model=settings.anthropic_model,
-        max_tokens=2048,
-        system=SYSTEM_PROMPT,
-        tools=TOOL_SCHEMAS + [PROVIDE_ANSWER_TOOL],  # type: ignore[arg-type]
-        messages=state["messages"],  # type: ignore[arg-type]
-    )
+    try:
+        response = client.messages.create(
+            model=settings.anthropic_model,
+            max_tokens=2048,
+            system=SYSTEM_PROMPT,
+            tools=TOOL_SCHEMAS + [PROVIDE_ANSWER_TOOL],  # type: ignore[arg-type]
+            messages=state["messages"],  # type: ignore[arg-type]
+        )
+    except APIError as exc:
+        # A timed-out/failed call (see ANTHROPIC_CALL_TIMEOUT_SECONDS above) must not crash the
+        # whole turn into main.py's unhandled-exception path (an uncaught exception here would
+        # propagate out of run_turn and surface as a raw 500). Deliberately append nothing to
+        # state["messages"] -- route_after_agent's `_final_tool_use` then finds the last message
+        # is NOT an assistant tool_use (still the prior round's tool_result/user turn) and takes
+        # its existing "model responded with plain text -- fail safe to verify" branch, finalizing
+        # with whatever real data this turn already gathered instead of hanging or crashing.
+        get_client().update_current_generation(
+            model=settings.anthropic_model,
+            output={"error": f"{type(exc).__name__}: {exc}"},
+        )
+        return state
     assistant_content = response.model_dump()["content"]
     # Redacted: no message text/content (PHI) sent to Langfuse -- only counts and tool names, which
     # are never patient data (see PHI_AUDIT.md).
