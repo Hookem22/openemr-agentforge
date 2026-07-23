@@ -53,6 +53,7 @@ def _base_state(**overrides) -> dict:
         "evidence_snippets": [],
         "evidence_fetched": False,
         "evidence_empty": False,
+        "allergy_reverified": False,
         "correlation_id": "corr-1",
         "handoff_log": [],
         "handoff_span_context": None,
@@ -69,8 +70,8 @@ def test_agent_state_declares_exactly_the_fields_every_node_relies_on():
         "patient_id", "bearer_token", "patient_pid", "messages", "tool_results_this_turn",
         "tool_failures", "verified_claims", "stripped_claims", "pending_document",
         "document_processed", "extracted_facts", "evidence_snippets", "evidence_fetched",
-        "evidence_empty", "correlation_id", "handoff_log", "handoff_span_context",
-        "agent_tool_iterations",
+        "evidence_empty", "allergy_reverified", "correlation_id", "handoff_log",
+        "handoff_span_context", "agent_tool_iterations",
     }
     assert set(AgentState.__annotations__) == expected_fields
 
